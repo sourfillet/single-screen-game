@@ -1,0 +1,43 @@
+{
+  "width": 25,
+  "height": 19,
+  "spawnX": 1,
+  "spawnY": 9,
+
+  "switches": [
+    { "x": 3, "y": 13, "group": "gate1", "mode": "hold",   "requires": "block" },
+    { "x": 3, "y": 5,  "group": "gate2", "mode": "toggle", "requires": "any"   }
+  ],
+
+  "switchDoors": [
+    { "x": 5, "y": 11, "w": 1, "h": 5, "group": "gate1" },
+    { "x": 5, "y": 3,  "w": 1, "h": 5, "group": "gate2" }
+  ],
+
+  "blocks": [
+    { "x": 3, "y": 11, "pushable": true },
+    { "x": 17, "y": 1, "pushable": false },
+    { "x": 17, "y": 2, "pushable": false },
+    { "x": 17, "y": 3, "pushable": false },
+    { "x": 17, "y": 4, "pushable": false },
+    { "x": 17, "y": 5, "pushable": false },
+    { "x": 17, "y": 6, "pushable": false },
+    { "x": 17, "y": 7, "pushable": false },
+    { "x": 17, "y": 8, "pushable": false },
+    { "x": 17, "y": 9, "pushable": false },
+    { "x": 17, "y": 10, "pushable": false },
+    { "x": 17, "y": 11, "pushable": false },
+    { "x": 17, "y": 12, "pushable": false },
+    { "x": 17, "y": 13, "pushable": false },
+    { "x": 17, "y": 14, "pushable": false },
+    { "x": 17, "y": 15, "pushable": false },
+    { "x": 17, "y": 16, "pushable": false },
+    { "x": 17, "y": 17, "pushable": false }
+  ],
+
+  "zones": [
+    { "type": "pit", "x": 7, "y": 1, "w": 10, "h": 17 },
+    { "type": "teleporter", "x": 4.5, "y": 9, "w": 1, "h": 1, "group": "A" },
+    { "type": "teleporter", "x": 20, "y": 9, "w": 1, "h": 1, "group": "A" }
+  ]
+}

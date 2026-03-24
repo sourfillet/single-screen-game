@@ -1,0 +1,62 @@
+{
+  "width":  25,
+  "height": 19,
+  "spawnX": 12,
+  "spawnY":  9,
+
+  "obstacles": [
+    { "x":  3, "y":  3, "w": 2, "h": 2 },
+    { "x": 10, "y":  2, "w": 4, "h": 1 },
+    { "x": 20, "y":  3, "w": 1, "h": 4 },
+    { "x":  4, "y":  9, "w": 1, "h": 4 },
+    { "x": 13, "y":  8, "w": 2, "h": 2 },
+    { "x": 19, "y": 11, "w": 4, "h": 1 },
+    { "x": 10, "y": 13, "w": 1, "h": 3 },
+    { "x":  3, "y": 14, "w": 2, "h": 2 }
+  ],
+
+  "blocks": [
+    { "x":  8, "y":  4, "pushable": false },
+    { "x": 16, "y":  5, "pushable": false },
+    { "x":  7, "y": 12, "pushable": true  },
+    { "x": 17, "y": 13, "pushable": true  }
+  ],
+
+  "zones": [
+    { "type": "damage",      "x":  6, "y":  3, "w": 2, "h": 2 },
+    { "type": "damage",      "x":  2, "y": 10, "w": 2, "h": 2 },
+    { "type": "pit",         "x": 21, "y":  4, "w": 2, "h": 2 },
+    { "type": "pit",         "x": 13, "y": 15, "w": 2, "h": 1 },
+    { "type": "ice",         "x":  6, "y": 16, "w": 9, "h": 1 },
+    { "type": "heal",        "x": 21, "y":  9, "w": 2, "h": 2 },
+    { "type": "directional", "x": 14, "y": 10, "w": 2, "h": 2, "direction": "down" },
+    { "type": "teleporter",  "x":  2, "y":  2, "w": 1, "h": 1, "group": "A" },
+    { "type": "teleporter",  "x": 22, "y": 16, "w": 1, "h": 1, "group": "A" },
+    { "type": "exit",        "x": 21, "y": 14, "w": 2, "h": 2 }
+  ],
+
+  "pickups": [
+    { "type": "key", "x": 9, "y": 14 }
+  ],
+
+  "lockedDoors": [
+    { "requires": "key", "x": 20, "y": 12, "w": 1, "h": 2 }
+  ],
+
+  "enemies": [
+    {
+      "x": 15, "y": 15,
+      "path": [{ "x": 15, "y": 15 }, { "x": 20, "y": 15 }]
+    },
+    {
+      "x": 15, "y": 4,
+      "path": [
+        { "x": 15, "y":  4 },
+        { "x": 15, "y":  7 },
+        { "x": 18, "y":  7 },
+        { "x": 18, "y":  4 }
+      ],
+      "wakeRadius": 200
+    }
+  ]
+}

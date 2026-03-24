@@ -11,7 +11,7 @@ const MARGIN = 24
  * Rendered in screen space at the bottom-left corner.
  */
 export class DPad {
-  readonly state: DPadState = { up: false, down: false, left: false, right: false }
+  readonly state: DPadState = { up: false, down: false, left: false, right: false, shield: false, colorCycle: false }
 
   constructor(scene: Phaser.Scene) {
     const cx = MARGIN + BTN_SIZE * 1.5
@@ -21,6 +21,11 @@ export class DPad {
     this.makeButton(scene, cx,            cy + BTN_SIZE, 'down',  '▼')
     this.makeButton(scene, cx - BTN_SIZE, cy,            'left',  '◀')
     this.makeButton(scene, cx + BTN_SIZE, cy,            'right', '▶')
+
+    // Action buttons — bottom-right corner, stacked vertically
+    const ax = scene.scale.width - MARGIN - BTN_SIZE
+    this.makeButton(scene, ax, scene.scale.height - MARGIN - BTN_SIZE,             'shield',     'SHD')
+    this.makeButton(scene, ax, scene.scale.height - MARGIN - BTN_SIZE * 2 - MARGIN, 'colorCycle', 'CLR')
   }
 
   private makeButton(
