@@ -28,6 +28,7 @@ export class Player {
     right: Phaser.Input.Keyboard.Key
   }
   private shieldKeys: Phaser.Input.Keyboard.Key[]
+  private actionKey: Phaser.Input.Keyboard.Key
   private paletteIndex = 0
 
   readonly maxHealth: number
@@ -79,9 +80,21 @@ export class Player {
       kb.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT),
       kb.addKey(Phaser.Input.Keyboard.KeyCodes.Z),
     ]
+    // E to pick up / put down transportable objects
+    this.actionKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E)
 
     this.registerAnimations(scene)
     this.gameObject.play('idle_front')
+  }
+
+  get actionJustPressed(): boolean {
+    return Phaser.Input.Keyboard.JustDown(this.actionKey)
+  }
+
+  get facingDir(): { dx: number; dy: number } {
+    if (this.facing === 'right') return { dx: this.facingFlipX ? -1 : 1, dy: 0 }
+    if (this.facing === 'back')  return { dx: 0, dy: -1 }
+    return { dx: 0, dy: 1 }
   }
 
   get body(): Phaser.Physics.Arcade.Body {

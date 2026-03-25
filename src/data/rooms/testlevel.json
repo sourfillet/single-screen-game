@@ -5,17 +5,17 @@
   "spawnY": 9,
 
   "switches": [
-    { "x": 3, "y": 13, "group": "gate1", "mode": "hold",   "requires": "block" },
-    { "x": 3, "y": 5,  "group": "gate2", "mode": "toggle", "requires": "any"   }
+    { "x": 3, "y": 13, "group": "gate1", "mode": "hold", "requires": "block" },
+    { "x": 3, "y": 5, "group": "gate2", "mode": "toggle", "requires": "any" }
   ],
 
   "switchDoors": [
     { "x": 5, "y": 11, "w": 1, "h": 5, "group": "gate1" },
-    { "x": 5, "y": 3,  "w": 1, "h": 5, "group": "gate2" }
+    { "x": 5, "y": 3, "w": 1, "h": 5, "group": "gate2" }
   ],
 
   "blocks": [
-    { "x": 3, "y": 11, "pushable": true },
+    { "x": 3, "y": 11, "pushable": true, "transportable": true },
     { "x": 17, "y": 1, "pushable": false },
     { "x": 17, "y": 2, "pushable": false },
     { "x": 17, "y": 3, "pushable": false },
@@ -33,6 +33,11 @@
     { "x": 17, "y": 15, "pushable": false },
     { "x": 17, "y": 16, "pushable": false },
     { "x": 17, "y": 17, "pushable": false }
+  ],
+
+  "pots": [
+    { "x": 5, "y": 5 },
+    { "x": 5, "y": 10 }
   ],
 
   "zones": [

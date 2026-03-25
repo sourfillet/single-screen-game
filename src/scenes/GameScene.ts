@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { Player } from "../entities/Player";
 import { Enemy } from "../entities/Enemy";
 import { DPad } from "../ui/DPad";
-import { HealthBar } from "../ui/HealthBar";
+import { HealthBar, HEART_FULL_KEY, HEART_FULL_URL, HEART_HALF_KEY, HEART_HALF_URL } from "../ui/HealthBar";
 import { DeathScreen } from "../ui/DeathScreen";
 import { DamageZone } from "../zones/DamageZone";
 import { PitZone } from "../zones/PitZone";
@@ -18,13 +18,15 @@ import { Switch } from "../entities/Switch";
 import { SwitchDoor } from "../entities/SwitchDoor";
 import { ROOM_DEFS, TILE_SIZE } from "../data/rooms";
 import { Block } from "../entities/Block";
+import { Pot } from "../entities/Pot";
+import { POT_SPRITE_URLS, POT_BREAK_KEYS, POT_BREAK_ANIM, POT_KEY } from "../assets/potSprites";
 import { PLAYER_SPRITE_URLS } from "../assets/playerSprites";
 import { BLOCK_SPRITE_URLS } from "../assets/blockSprites";
 import { stripBackground } from "../utils/textureUtils";
 import { FLOOR_TILE_KEY, FLOOR_TILE_URL } from "../assets/floorTile";
+import { BRICK_TILE_KEY, BRICK_TILE_URL } from "../assets/brickTile";
 
 const WALL_THICKNESS = 1 * TILE_SIZE; // 1-tile-thick border walls (= one sprite width)
-const WALL_COLOR = 0x4a4a6a;
 
 const OBSTACLE_COLOR = 0x7a4010;
 
@@ -55,6 +57,9 @@ export class GameScene extends Phaser.Scene {
   private lockedDoors: LockedDoor[] = [];
   private switches: Switch[] = [];
   private switchDoors: SwitchDoor[] = [];
+  private pots: Pot[] = [];
+  private carriedBlock: Block | null = null;
+  private carriedPot: Pot | null = null;
   private keyCountText!: Phaser.GameObjects.Text;
   private enemies: Enemy[] = [];
   private gameOver = false;
@@ -77,10 +82,23 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, url);
     }
     this.load.image(FLOOR_TILE_KEY, FLOOR_TILE_URL);
+    this.load.image(BRICK_TILE_KEY, BRICK_TILE_URL);
+    this.load.image(HEART_FULL_KEY, HEART_FULL_URL);
+    this.load.image(HEART_HALF_KEY, HEART_HALF_URL);
+    for (const [key, url] of Object.entries(POT_SPRITE_URLS)) {
+      this.load.image(key, url);
+    }
   }
 
   create(): void {
     this.gameOver = false;
+
+    this.anims.create({
+      key: POT_BREAK_ANIM,
+      frames: POT_BREAK_KEYS.map((key) => ({ key })),
+      frameRate: 12,
+      repeat: 0,
+    });
 
     for (const key of Object.keys(PLAYER_SPRITE_URLS)) {
       stripBackground(this, key);
@@ -101,6 +119,7 @@ export class GameScene extends Phaser.Scene {
     this.buildPickups(room);
     this.buildLockedDoors(room);
     this.buildSwitches(room);
+    this.buildPots(room);
     this.buildEnemies(room);
 
     this.cameras.main.setBounds(0, 0, roomW, roomH);
@@ -244,6 +263,30 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Pots — player/enemy/block collision; break callbacks fire only when thrown
+    for (const pot of this.pots) {
+      this.physics.add.collider(this.player.gameObject, pot.gameObject);
+      this.physics.add.collider(pot.gameObject, this.walls,     () => { if (pot.thrown) pot.break(); });
+      this.physics.add.collider(pot.gameObject, this.obstacles, () => { if (pot.thrown) pot.break(); });
+      for (const block of this.blocks) {
+        this.physics.add.collider(pot.gameObject, block.gameObject, () => { if (pot.thrown) pot.break(); });
+      }
+      for (const other of this.pots) {
+        if (other === pot) continue;
+        this.physics.add.collider(pot.gameObject, other.gameObject, () => {
+          if (pot.thrown || other.thrown) { pot.break(); other.break(); }
+        });
+      }
+      for (const zone of this.pitZones) {
+        this.physics.add.overlap(pot.gameObject, zone.gameObject, () => {
+          if (zone.containsFully(pot.gameObject.body as Phaser.Physics.Arcade.Body)) pot.fallIntoPit();
+        });
+      }
+      for (const door of this.switchDoors) {
+        this.physics.add.collider(pot.gameObject, door.gameObject, () => { if (pot.thrown) pot.break(); });
+      }
+    }
+
     // Exit zone
     for (const zone of this.exitZones) {
       this.physics.add.overlap(this.player.gameObject, zone.gameObject, () => {
@@ -269,6 +312,7 @@ export class GameScene extends Phaser.Scene {
 
     this.icePass();
     this.switchPass();
+    this.carryPass();
     this.player.update(this.dpad.state);
     for (const enemy of this.enemies) enemy.update(this.player);
     this.directionalPass();
@@ -335,8 +379,15 @@ export class GameScene extends Phaser.Scene {
     }
     for (const go of this.pushableBlockObjects) {
       if (!go.active) continue;
+      if (this.carriedBlock?.gameObject === go) continue; // skip while carried
       this.physics.world.collide(go, this.walls);
       this.physics.world.collide(go, this.obstacles);
+    }
+    // Extra resolution pass for thrown pots
+    for (const pot of this.pots) {
+      if (!pot.gameObject.active || pot.broken || pot.carried) continue;
+      this.physics.world.collide(pot.gameObject, this.walls);
+      this.physics.world.collide(pot.gameObject, this.obstacles);
     }
   }
 
@@ -348,19 +399,22 @@ export class GameScene extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
     const t = WALL_THICKNESS;
 
-    // top / bottom / left / right border slabs
-    const rects: [number, number, number, number][] = [
-      [width / 2, t / 2, width, t], // top
-      [width / 2, height - t / 2, width, t], // bottom
-      [t / 2, height / 2, t, height], // left
-      [width - t / 2, height / 2, t, height], // right
-    ];
-
-    for (const [x, y, w, h] of rects) {
-      this.walls.add(this.add.rectangle(x, y, w, h, WALL_COLOR));
+    // Invisible collision slabs — visuals are provided by tile sprites below
+    for (const [x, y, w, h] of [
+      [width / 2, t / 2, width, t],
+      [width / 2, height - t / 2, width, t],
+      [t / 2, height / 2, t, height],
+      [width - t / 2, height / 2, t, height],
+    ] as [number, number, number, number][]) {
+      this.walls.add(this.add.rectangle(x, y, w, h, 0, 0));
     }
-
     this.walls.refresh();
+
+    // Brick tile visuals over each wall slab
+    this.add.tileSprite(width / 2, t / 2,            width, t, BRICK_TILE_KEY);
+    this.add.tileSprite(width / 2, height - t / 2,   width, t, BRICK_TILE_KEY);
+    this.add.tileSprite(t / 2,     height / 2,        t, height, BRICK_TILE_KEY);
+    this.add.tileSprite(width - t / 2, height / 2,   t, height, BRICK_TILE_KEY);
   }
 
   private buildObstacles(room: (typeof ROOM_DEFS)[string]): void {
@@ -385,9 +439,9 @@ export class GameScene extends Phaser.Scene {
     this.blocks = [];
     this.fixedBlockObjects = [];
     this.pushableBlockObjects = [];
-    for (const { x, y, pushable } of room.blocks ?? []) {
+    for (const { x, y, pushable, transportable } of room.blocks ?? []) {
       // Blocks are 1×1 tile (32×32 px) — entity convention, centred within their tile
-      const block = new Block(this, entPx(x), entPx(y), pushable);
+      const block = new Block(this, entPx(x), entPx(y), pushable, transportable);
       this.blocks.push(block);
       if (pushable) this.pushableBlockObjects.push(block.gameObject);
       else this.fixedBlockObjects.push(block.gameObject);
@@ -462,6 +516,82 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Handles pick-up and drop of transportable blocks (E key).
+   * While carrying, the block floats above the player each frame.
+   * Carrying a block counts as block-weight on switches (handled in switchPass).
+   */
+  private carryPass(): void {
+    const PICKUP_RANGE = TILE_SIZE * 1.5;
+    const THROW_SPEED  = 220;
+
+    if (this.player.actionJustPressed) {
+      if (this.carriedBlock) {
+        // Drop block one tile ahead
+        const { dx, dy } = this.player.facingDir;
+        this.carriedBlock.drop(
+          this.player.gameObject.x + dx * TILE_SIZE,
+          this.player.gameObject.y + dy * TILE_SIZE,
+        );
+        this.carriedBlock = null;
+      } else if (this.carriedPot) {
+        // Throw pot in facing direction
+        const { dx, dy } = this.player.facingDir;
+        this.carriedPot.throw(
+          this.player.gameObject.x + dx * TILE_SIZE,
+          this.player.gameObject.y + dy * TILE_SIZE,
+          dx * THROW_SPEED,
+          dy * THROW_SPEED,
+        );
+        this.carriedPot = null;
+      } else {
+        // Pick up the nearest transportable block OR pot within range
+        let nearestBlock: Block | null = null;
+        let nearestPot:   Pot   | null = null;
+        let bestBlockDist = Infinity;
+        let bestPotDist   = Infinity;
+
+        for (const block of this.blocks) {
+          if (!block.transportable || !block.gameObject.active) continue;
+          const dist = Phaser.Math.Distance.Between(
+            this.player.gameObject.x, this.player.gameObject.y,
+            block.gameObject.x, block.gameObject.y,
+          );
+          if (dist < PICKUP_RANGE && dist < bestBlockDist) { nearestBlock = block; bestBlockDist = dist; }
+        }
+        for (const pot of this.pots) {
+          if (pot.broken || !pot.gameObject.active) continue;
+          const dist = Phaser.Math.Distance.Between(
+            this.player.gameObject.x, this.player.gameObject.y,
+            pot.gameObject.x, pot.gameObject.y,
+          );
+          if (dist < PICKUP_RANGE && dist < bestPotDist) { nearestPot = pot; bestPotDist = dist; }
+        }
+
+        if (nearestPot && bestPotDist <= bestBlockDist) {
+          this.carriedPot = nearestPot;
+          nearestPot.pickUp();
+        } else if (nearestBlock) {
+          this.carriedBlock = nearestBlock;
+          nearestBlock.pickUp();
+        }
+      }
+    }
+
+    // Keep carried items above the player's head each frame.
+    // body.reset() keeps physics body and game object in sync.
+    if (this.carriedBlock) {
+      const bx = this.player.gameObject.x;
+      const by = this.player.gameObject.y - TILE_SIZE;
+      (this.carriedBlock.gameObject.body as Phaser.Physics.Arcade.Body).reset(bx, by);
+    }
+    if (this.carriedPot) {
+      const bx = this.player.gameObject.x;
+      const by = this.player.gameObject.y - TILE_SIZE;
+      (this.carriedPot.gameObject.body as Phaser.Physics.Arcade.Body).reset(bx, by);
+    }
+  }
+
   private buildSwitches(room: (typeof ROOM_DEFS)[string]): void {
     this.switches = [];
     this.switchDoors = [];
@@ -513,6 +643,19 @@ export class GameScene extends Phaser.Scene {
             break;
           }
         }
+        // Carried block/pot counts too — use player position since body is disabled
+        if (!pressedNow && (this.carriedBlock || this.carriedPot) &&
+            this.physics.world.overlap(this.player.gameObject, sw.gameObject)) {
+          pressedNow = true;
+        }
+        // Resting pots count the same as blocks
+        for (const pot of this.pots) {
+          if (pot.broken || pot.carried) continue;
+          if (this.physics.world.overlap(pot.gameObject, sw.gameObject)) {
+            pressedNow = true;
+            break;
+          }
+        }
       }
 
       const changed = sw.press(pressedNow);
@@ -533,6 +676,13 @@ export class GameScene extends Phaser.Scene {
     this.pickups = [];
     for (const { type, x, y } of room.pickups ?? []) {
       this.pickups.push(new Pickup(this, entPx(x), entPx(y), type));
+    }
+  }
+
+  private buildPots(room: (typeof ROOM_DEFS)[string]): void {
+    this.pots = [];
+    for (const { x, y } of room.pots ?? []) {
+      this.pots.push(new Pot(this, entPx(x), entPx(y)));
     }
   }
 

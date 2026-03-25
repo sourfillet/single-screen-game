@@ -8,7 +8,7 @@ export type SwitchMode     = 'toggle' | 'hold'
 export type SwitchRequires = 'any' | 'block' | string   // string covers 'item:*'
 
 const BG_COLOR  = 0x444455   // unpressed background
-const OFF_COLOR = 0x222233   // indicator when inactive
+const OFF_COLOR = 0xdd2222   // indicator when inactive
 const ON_COLOR  = 0x44ff44   // indicator when active
 
 const INDICATOR_SIZE = TILE_SIZE / 2   // 16 px inset marker
@@ -50,12 +50,12 @@ export class Switch {
     this.requires = requires
 
     this.gameObject = scene.add.rectangle(x, y, TILE_SIZE, TILE_SIZE, BG_COLOR)
-    this.gameObject.setDepth(2)
+    this.gameObject.setDepth(1)
     scene.physics.add.existing(this.gameObject, true)
 
     // Smaller inner rectangle whose colour shows the current state
     this.indicator = scene.add.rectangle(x, y, INDICATOR_SIZE, INDICATOR_SIZE, OFF_COLOR)
-    this.indicator.setDepth(3)
+    this.indicator.setDepth(1)
   }
 
   /**

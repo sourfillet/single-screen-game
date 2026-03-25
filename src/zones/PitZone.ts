@@ -1,9 +1,7 @@
 import Phaser from 'phaser'
 import type { Player } from '../entities/Player'
 
-const COLOR        = 0x080808
-const EDGE_COLOR   = 0x303030
-const EDGE_PADDING = 4
+const VOID_COLOR = 0x080808
 
 /**
  * Hazard zone that instantly strips one full heart (2 HP) and teleports
@@ -26,11 +24,12 @@ export class PitZone {
     this.spawnX = spawnX
     this.spawnY = spawnY
 
-    // Outer ring sits exactly on the tile footprint — no overflow into neighbouring tiles
-    this.gameObject = scene.add.rectangle(x, y, w, h, EDGE_COLOR)
+    // Invisible rectangle — physics only, used for overlap detection and containsFully
+    this.gameObject = scene.add.rectangle(x, y, w, h, 0, 0)
     scene.physics.add.existing(this.gameObject, true)
-    // Dark pit inset so the edge colour shows as a rim around the inside
-    scene.add.rectangle(x, y, w - EDGE_PADDING * 2, h - EDGE_PADDING * 2, COLOR)
+
+    // Dark void fill
+    scene.add.rectangle(x, y, w, h, VOID_COLOR).setDepth(0)
   }
 
   /**

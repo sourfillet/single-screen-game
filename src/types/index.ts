@@ -52,6 +52,7 @@ export interface BlockDef {
   x: number;
   y: number;
   pushable: boolean;
+  transportable?: boolean;
 }
 
 /** See BlockDef for coordinate convention. */
@@ -115,6 +116,15 @@ export interface SwitchDoorDef {
   group: string;
 }
 
+/**
+ * Pot definition — entity convention (x, y = tile col/row, 1×1 tile).
+ * Pots are always pickable and throwable; they break on thrown collision.
+ */
+export interface PotDef {
+  x: number;
+  y: number;
+}
+
 export interface RoomDef {
   /** Room width in tiles. */
   width: number;
@@ -131,4 +141,5 @@ export interface RoomDef {
   lockedDoors?: LockedDoorDef[];
   switches?: SwitchDef[];
   switchDoors?: SwitchDoorDef[];
+  pots?: PotDef[];
 }
