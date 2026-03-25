@@ -68,6 +68,7 @@ export class GameScene extends Phaser.Scene {
   private colorLabel!: Phaser.GameObjects.Text;
   private colorKey!: Phaser.Input.Keyboard.Key;
   private damageTestKey!: Phaser.Input.Keyboard.Key;
+  private resetKey!: Phaser.Input.Keyboard.Key;
 
   constructor() {
     super({ key: "GameScene" });
@@ -104,7 +105,10 @@ export class GameScene extends Phaser.Scene {
       stripBackground(this, key);
     }
 
-    const room = ROOM_DEFS["test"];
+    const _preview = localStorage.getItem('editorPreviewRoom');
+    const room: (typeof ROOM_DEFS)[string] = _preview
+      ? JSON.parse(_preview)
+      : ROOM_DEFS["test"];
 
     const roomW = room.width * TILE_SIZE;
     const roomH = room.height * TILE_SIZE;
@@ -305,6 +309,21 @@ export class GameScene extends Phaser.Scene {
     this.damageTestKey = this.input.keyboard!.addKey(
       Phaser.Input.Keyboard.KeyCodes.H,
     );
+
+    this.resetKey = this.input.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.R,
+    );
+
+    // Reset button — top-right corner, fixed to camera
+    const resetBtn = this.add
+      .text(this.scale.width - 8, 8, '↺', { fontSize: '20px', color: '#aaaaaa' })
+      .setOrigin(1, 0)
+      .setScrollFactor(0)
+      .setDepth(20)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => resetBtn.setColor('#ffffff'))
+      .on('pointerout',  () => resetBtn.setColor('#aaaaaa'))
+      .on('pointerdown', () => this.scene.restart());
   }
 
   update(): void {
@@ -340,6 +359,10 @@ export class GameScene extends Phaser.Scene {
 
     if (Phaser.Input.Keyboard.JustDown(this.damageTestKey)) {
       this.player.takeDamage(1);
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.resetKey)) {
+      this.scene.restart();
     }
   }
 

@@ -66,6 +66,10 @@ export class Player {
     this.paletteIndex = PLAYER_PALETTE.findIndex(p => p.color === tint)
     if (this.paletteIndex === -1) this.paletteIndex = 0
     this.body.setCollideWorldBounds(true)
+    // Hitbox smaller than the visual tile so the player slides cleanly through
+    // 1-tile-wide corridors instead of snagging on block corners.
+    // 12×12 source (= 24×24 world at scale 2) gives 4 px clearance per side.
+    this.body.setSize(12, 12)
 
     const kb = scene.input.keyboard!
     this.cursors = kb.createCursorKeys()

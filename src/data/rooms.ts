@@ -1,6 +1,7 @@
 import type { RoomDef } from "../types";
 import startRoom from "./rooms/start.json";
 import testRoom from "./rooms/testlevel.json";
+import testMaze from "./rooms/textmaze.json";
 
 /**
  * One tile = 32 px, matching the rendered sprite size (16 px source × scale 2).
@@ -16,5 +17,6 @@ export const TILE_SIZE = 32;
 
 export const ROOM_DEFS: Record<string, RoomDef> = {
   //start: startRoom as RoomDef,
-  test: testRoom as RoomDef,
+  test:     testRoom as RoomDef,
+  textmaze: testMaze as RoomDef,
 };

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Level Editor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      display: flex; height: 100vh; overflow: hidden;
+      background: #1a1a1a; color: #ddd; font-family: monospace; font-size: 12px;
+    }
+    #sidebar {
+      width: 210px; min-width: 210px; display: flex; flex-direction: column;
+      border-right: 1px solid #444; background: #252525; overflow: hidden;
+    }
+    .sidebar-section { border-bottom: 1px solid #333; padding: 8px; }
+    .sidebar-title {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+      color: #888; margin-bottom: 6px;
+    }
+    #palette-wrap { flex: 1; overflow-y: auto; padding: 8px; }
+    #canvas-container { flex: 1; overflow: hidden; background: #111; }
+    #canvas-container canvas { display: block; }
+
+    /* Palette */
+    .palette-category { font-size: 10px; color: #777; margin: 8px 0 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .palette-category:first-child { margin-top: 0; }
+    .tool-btn {
+      display: block; width: 100%; background: #2e2e2e; border: 1px solid #444;
+      border-left: 3px solid transparent; color: #bbb; padding: 4px 6px;
+      cursor: pointer; text-align: left; font-size: 11px; font-family: monospace;
+      margin-bottom: 2px; border-radius: 2px;
+    }
+    .tool-btn:hover { background: #363636; color: #eee; }
+    .tool-btn.active { background: #3c3c3c; color: #fff; border-color: #777 #777 #777 var(--tool-color, #777); }
+    .eraser-btn {
+      display: block; width: 100%; background: #2a2a2a; border: 1px solid #555;
+      color: #aaa; padding: 4px 6px; cursor: pointer; text-align: left;
+      font-size: 11px; font-family: monospace; margin-bottom: 10px; border-radius: 2px;
+    }
+    .eraser-btn:hover { background: #333; }
+
+    /* Properties */
+    .prop-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; gap: 4px; }
+    .prop-row label { color: #999; font-size: 11px; flex-shrink: 0; }
+    .prop-row input, .prop-row select {
+      background: #333; border: 1px solid #555; color: #ddd; padding: 2px 4px;
+      font-size: 11px; font-family: monospace; width: 90px; border-radius: 2px;
+    }
+    .prop-row input[type="checkbox"] { width: auto; }
+    .no-props { color: #555; font-size: 11px; font-style: italic; }
+
+    /* Room settings */
+    .room-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .room-row label { color: #999; font-size: 11px; }
+    .room-row input { background: #333; border: 1px solid #555; color: #ddd; padding: 2px 4px; font-size: 11px; width: 60px; font-family: monospace; }
+
+    /* Actions */
+    .action-btn {
+      display: block; width: 100%; background: #2e2e2e; border: 1px solid #555;
+      color: #ccc; padding: 6px; cursor: pointer; font-size: 11px;
+      font-family: monospace; margin-bottom: 4px; border-radius: 2px;
+    }
+    .action-btn:hover { background: #363636; }
+    .action-btn.danger { border-color: #622; color: #f88; }
+    .action-btn.danger:hover { background: #2a1818; }
+    .action-btn.play { border-color: #262; color: #8f8; font-weight: bold; }
+    .action-btn.play:hover { background: #182818; }
+
+    /* Status bar */
+    #statusbar {
+      position: fixed; bottom: 0; right: 0; padding: 2px 8px;
+      background: rgba(0,0,0,0.6); color: #666; font-size: 10px; font-family: monospace;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-title">Room</div>
+      <div id="room-settings"></div>
+    </div>
+    <div id="palette-wrap">
+      <div class="sidebar-title">Palette</div>
+      <div id="palette"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Properties</div>
+      <div id="properties"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Actions</div>
+      <div id="actions"></div>
+    </div>
+  </div>
+  <div id="canvas-container"></div>
+  <div id="statusbar">col 0, row 0</div>
+  <script type="module" src="/src/editor/main.ts"></script>
+</body>
+</html>
