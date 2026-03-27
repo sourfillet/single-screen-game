@@ -2,7 +2,9 @@ import { defineConfig } from 'vite'
 import { resolve } from 'path'
 
 export default defineConfig({
-  base: '/',
+  // On GitHub Actions, the site is served at /<repo-name>/ — set base accordingly.
+  // Locally the base stays '/' so paths resolve from root.
+  base: process.env.GITHUB_ACTIONS ? '/single-screen-game/' : '/',
   server: {
     historyApiFallback: true,
   },

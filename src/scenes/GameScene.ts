@@ -109,9 +109,13 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     // Load level from URL slug, e.g. /testlevel → fetch /testlevel.json from public/
-    const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    // Strip the Vite base path first so /single-screen-game/testlevel → testlevel.
+    const base = import.meta.env.BASE_URL ?? '/';
+    const slug = window.location.pathname
+      .slice(base.length)
+      .replace(/^\/+|\/+$/g, '');
     if (slug && !slug.endsWith('.html')) {
-      this.load.json('url-room', `/${slug}.json`);
+      this.load.json('url-room', `${base}${slug}.json`);
     }
 
     for (const [key, url] of Object.entries(PLAYER_SPRITE_URLS)) {
