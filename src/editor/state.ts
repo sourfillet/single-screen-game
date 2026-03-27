@@ -1,3 +1,6 @@
+export interface BaseTileEntry { x: number; y: number; texture: string }
+export interface TopTileEntry  { x: number; y: number; texture: string; hiddenPickup?: string }
+
 /** Mutable room definition used during editing. */
 export interface EditorRoom {
   width:   number
@@ -11,13 +14,16 @@ export interface EditorRoom {
   zones:        Record<string, unknown>[]
   obstacles:    Record<string, unknown>[]
   lockedDoors:  Record<string, unknown>[]
+  lockedBlocks: Record<string, unknown>[]
   switches:     Record<string, unknown>[]
   switchDoors:  Record<string, unknown>[]
+  baseTiles:    BaseTileEntry[]
+  topTiles:     TopTileEntry[]
 }
 
 export const ARRAY_FIELDS = [
   'blocks', 'pots', 'enemies', 'pickups',
-  'zones', 'obstacles', 'lockedDoors', 'switches', 'switchDoors',
+  'zones', 'obstacles', 'lockedDoors', 'lockedBlocks', 'switches', 'switchDoors',
 ] as const
 
 export type ArrayField = typeof ARRAY_FIELDS[number]
@@ -27,8 +33,34 @@ export function emptyRoom(width = 25, height = 19): EditorRoom {
     width, height,
     spawnX: 1, spawnY: Math.floor(height / 2),
     blocks: [], pots: [], enemies: [], pickups: [],
-    zones: [], obstacles: [], lockedDoors: [], switches: [], switchDoors: [],
+    zones: [], obstacles: [], lockedDoors: [], lockedBlocks: [], switches: [], switchDoors: [],
+    baseTiles: [], topTiles: [],
   }
+}
+
+export function paintTile(
+  room: EditorRoom,
+  layer: 'base' | 'top',
+  col: number, row: number,
+  texture: string,
+  hiddenPickup?: string,
+): void {
+  const arr = layer === 'base' ? room.baseTiles : room.topTiles
+  const idx = arr.findIndex(t => t.x === col && t.y === row)
+  const entry: TopTileEntry = { x: col, y: row, texture }
+  if (hiddenPickup) entry.hiddenPickup = hiddenPickup
+  if (idx >= 0) arr[idx] = entry
+  else arr.push(entry)
+}
+
+export function eraseTile(
+  room: EditorRoom,
+  layer: 'base' | 'top',
+  col: number, row: number,
+): void {
+  const arr = layer === 'base' ? room.baseTiles : room.topTiles
+  const idx = arr.findIndex(t => t.x === col && t.y === row)
+  if (idx >= 0) arr.splice(idx, 1)
 }
 
 export function placeEntity(
@@ -57,7 +89,7 @@ export function placeArea(
 /** Remove entities occupying tile (col,row) and areas containing it. */
 export function deleteAt(room: EditorRoom, col: number, row: number): boolean {
   let deleted = false
-  const entityFields = ['blocks', 'pots', 'enemies', 'pickups', 'switches']
+  const entityFields = ['blocks', 'pots', 'enemies', 'pickups', 'switches', 'lockedBlocks']
   const areaFields   = ['zones', 'obstacles', 'lockedDoors', 'switchDoors']
 
   for (const f of entityFields) {
@@ -79,6 +111,18 @@ export function deleteAt(room: EditorRoom, col: number, row: number): boolean {
   return deleted
 }
 
+/** Patch properties on an existing item in-place. */
+export function updateItem(
+  room: EditorRoom,
+  field: string,
+  index: number,
+  patch: Record<string, unknown>,
+): void {
+  const arr = (room as Record<string, Record<string, unknown>[]>)[field]
+  if (!Array.isArray(arr) || index < 0 || index >= arr.length) return
+  Object.assign(arr[index], patch)
+}
+
 export function exportJSON(room: EditorRoom): string {
   const out: Record<string, unknown> = {
     width:  room.width,
@@ -89,6 +133,8 @@ export function exportJSON(room: EditorRoom): string {
   for (const f of ARRAY_FIELDS) {
     if (room[f].length > 0) out[f] = room[f]
   }
+  if (room.baseTiles.length > 0) out['baseTiles'] = room.baseTiles
+  if (room.topTiles.length  > 0) out['topTiles']  = room.topTiles
   return JSON.stringify(out, null, 2)
 }
 
@@ -101,5 +147,7 @@ export function importJSON(json: string): EditorRoom {
     const val = p[f]
     if (Array.isArray(val)) room[f] = val as Record<string, unknown>[]
   }
+  if (Array.isArray(p['baseTiles'])) room.baseTiles = p['baseTiles'] as BaseTileEntry[]
+  if (Array.isArray(p['topTiles']))  room.topTiles  = p['topTiles']  as TopTileEntry[]
   return room
 }

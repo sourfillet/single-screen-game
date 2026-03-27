@@ -19,6 +19,10 @@ export interface ObstacleDef {
   w: number;
   h: number;
   color?: number;
+  /** If true, a bomb explosion within blast radius destroys this obstacle. */
+  breakable?: boolean;
+  /** If true, fire can spread through this obstacle and ignite it. */
+  flammable?: boolean;
 }
 
 /** See ObstacleDef for coordinate convention. */
@@ -30,7 +34,8 @@ export interface ZoneDef {
     | "heal"
     | "directional"
     | "teleporter"
-    | "exit";
+    | "exit"
+    | "flammable";
   x: number;
   y: number;
   w: number;
@@ -41,6 +46,17 @@ export interface ZoneDef {
   speed?: number;
   /** teleporter zones: zones sharing a group are linked */
   group?: string;
+  /** teleporter zones: unique id used by other zones' destination field */
+  id?: string;
+  /**
+   * teleporter zones: where to send the player.
+   * A specific id → always sends there.
+   * "random"       → picks randomly from the same group (excluding self).
+   * Omitted        → cycles to the next zone in the group (original behaviour).
+   */
+  destination?: string;
+  /** teleporter zones: false = receive-only (cannot send). Default true. */
+  active?: boolean;
 }
 
 /**
@@ -53,6 +69,10 @@ export interface BlockDef {
   y: number;
   pushable: boolean;
   transportable?: boolean;
+  /** If true, a bomb blast destroys this block. */
+  breakable?: boolean;
+  /** If true, fire can spread to and burn this block. */
+  flammable?: boolean;
 }
 
 /** See BlockDef for coordinate convention. */
@@ -79,6 +99,17 @@ export interface PickupDef {
 }
 
 /**
+ * Locked block — entity convention (x, y = tile col/row, occupies 1×1 tile).
+ * Acts like a fixed block; removed when the player bumps into it while carrying
+ * the required item (default: 'key').
+ */
+export interface LockedBlockDef {
+  x: number;
+  y: number;
+  requires: string;
+}
+
+/**
  * Locked door — area convention (same as ObstacleDef).
  * x, y = top-left tile corner; w, h = tile dimensions.
  * `requires` must match a PickupDef `type`.
@@ -100,8 +131,10 @@ export interface SwitchDef {
   x: number;
   y: number;
   group: string;
-  mode?: 'hold' | 'toggle';
+  mode?: 'hold' | 'toggle' | 'one-time';
   requires?: string;
+  /** false = permanently disabled at spawn; cannot be pressed. Default true. */
+  enabled?: boolean;
 }
 
 /**
@@ -125,6 +158,29 @@ export interface PotDef {
   y: number;
 }
 
+/**
+ * Painted base tile — permanent cosmetic layer (entity convention: x,y = col,row).
+ * Rendered above the default floor texture.
+ */
+export interface BaseTileDef {
+  x: number;
+  y: number;
+  /** Tile palette key, e.g. 'tile_grass'. */
+  texture: string;
+}
+
+/**
+ * Top-layer tile — destructible by the player with a shovel (entity convention).
+ * Rendered above base tiles. May hide a pickup underneath.
+ */
+export interface TopTileDef {
+  x: number;
+  y: number;
+  texture: string;
+  /** Pickup type spawned when this tile is dug up, e.g. 'key'. */
+  hiddenPickup?: string;
+}
+
 export interface RoomDef {
   /** Room width in tiles. */
   width: number;
@@ -139,7 +195,12 @@ export interface RoomDef {
   enemies?: EnemyDef[];
   pickups?: PickupDef[];
   lockedDoors?: LockedDoorDef[];
+  lockedBlocks?: LockedBlockDef[];
   switches?: SwitchDef[];
   switchDoors?: SwitchDoorDef[];
   pots?: PotDef[];
+  /** Permanent cosmetic tiles painted over the default floor. */
+  baseTiles?: BaseTileDef[];
+  /** Destructible top-layer tiles (requires shovel to dig). */
+  topTiles?: TopTileDef[];
 }

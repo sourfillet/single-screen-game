@@ -25,34 +25,40 @@ export class Pickup {
   constructor(scene: Phaser.Scene, x: number, y: number, type: string) {
     this.type = type
 
-    const color = TYPE_COLORS[type] ?? TYPE_COLORS['default']
+    const textureKey = `pickup_${type}`
 
-    // Simple diamond shape drawn into a RenderTexture so it works as a physics image
-    const size = 20
-    const rt = scene.add.renderTexture(0, 0, size, size).setVisible(false)
-    const gfx = scene.add.graphics()
-    gfx.fillStyle(color, 1)
-    gfx.fillTriangle(size / 2, 0, size, size / 2, size / 2, size)
-    gfx.fillTriangle(size / 2, 0, 0, size / 2, size / 2, size)
-    rt.draw(gfx, 0, 0)
-    gfx.destroy()
-    rt.saveTexture(`pickup_${type}`)
-    rt.destroy()
+    // Use a pre-loaded sprite if available, otherwise generate a coloured diamond.
+    const usedSprite = scene.textures.exists(textureKey)
+    if (!usedSprite) {
+      const color = TYPE_COLORS[type] ?? TYPE_COLORS['default']
+      const size = 20
+      const rt = scene.add.renderTexture(0, 0, size, size).setVisible(false)
+      const gfx = scene.add.graphics()
+      gfx.fillStyle(color, 1)
+      gfx.fillTriangle(size / 2, 0, size, size / 2, size / 2, size)
+      gfx.fillTriangle(size / 2, 0, 0, size / 2, size / 2, size)
+      rt.draw(gfx, 0, 0)
+      gfx.destroy()
+      rt.saveTexture(textureKey)
+      rt.destroy()
+    }
 
-    this.gameObject = scene.physics.add.image(x, y, `pickup_${type}`)
-    this.gameObject.setDepth(5)
+    this.gameObject = scene.physics.add.image(x, y, textureKey)
+      .setDepth(5)
     ;(this.gameObject.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
 
-    // Idle scale pulse
-    scene.tweens.add({
-      targets: this.gameObject,
-      scaleX: 1.2,
-      scaleY: 1.2,
-      duration: SCALE_PULSE_DURATION,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    })
+    // Scale pulse only on generated shapes — sprite-based pickups display at natural size
+    if (!usedSprite) {
+      scene.tweens.add({
+        targets: this.gameObject,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        duration: SCALE_PULSE_DURATION,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      })
+    }
   }
 
   /** Call when the player walks over this pickup. Plays collect animation then destroys. */

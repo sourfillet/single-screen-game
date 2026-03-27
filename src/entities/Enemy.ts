@@ -25,6 +25,8 @@ export class Enemy {
   private readonly wakeRadius: number
   private _fallingIn = false
   get fallingIn(): boolean { return this._fallingIn }
+  private _dead = false
+  get isDead(): boolean { return this._dead }
 
   /** Set by IceZone each frame. Causes velocity to lerp instead of snap. */
   onIce = false
@@ -53,6 +55,8 @@ export class Enemy {
     this.gameObject.setDepth(2)
     // Flying enemies don't interact with solid world bounds either
     this.body.setCollideWorldBounds(!flying)
+    // Same hitbox reduction as the player — gives 4 px clearance per side in 1-tile corridors
+    this.body.setSize(12, 12)
 
     this.gameObject.play('idle_front')
   }
@@ -83,6 +87,21 @@ export class Enemy {
     }
 
     this.applyAnimation()
+  }
+
+  /** Kill the enemy (bomb blast, fire, etc.). Plays a burst animation then destroys. */
+  kill(): void {
+    if (this._fallingIn || this._dead) return
+    this._dead = true
+    this.body.enable = false
+    this.gameObject.scene.tweens.add({
+      targets: this.gameObject,
+      scaleX: 2, scaleY: 2,
+      alpha: 0,
+      duration: 280,
+      ease: 'Power2.easeOut',
+      onComplete: () => this.gameObject.destroy(),
+    })
   }
 
   /** Called when the enemy fully overlaps a pit zone. Plays a fall animation then destroys. */

@@ -35,17 +35,29 @@ export const TOOLS: ToolDef[] = [
   {
     id: 'block-fixed', label: 'Block (Fixed)', category: 'Blocks',
     mode: 'entity', field: 'blocks', color: '#7a4010',
-    staticProps: { pushable: false }, props: [],
+    staticProps: { pushable: false },
+    props: [
+      { key: 'breakable', label: 'Breakable', type: 'boolean', default: false },
+      { key: 'flammable', label: 'Flammable', type: 'boolean', default: false },
+    ],
   },
   {
     id: 'block-pushable', label: 'Block (Pushable)', category: 'Blocks',
     mode: 'entity', field: 'blocks', color: '#b06020',
-    staticProps: { pushable: true }, props: [],
+    staticProps: { pushable: true },
+    props: [
+      { key: 'breakable', label: 'Breakable', type: 'boolean', default: false },
+      { key: 'flammable', label: 'Flammable', type: 'boolean', default: false },
+    ],
   },
   {
     id: 'block-carryable', label: 'Block (Carryable)', category: 'Blocks',
     mode: 'entity', field: 'blocks', color: '#d08030',
-    staticProps: { pushable: true, transportable: true }, props: [],
+    staticProps: { pushable: true, transportable: true },
+    props: [
+      { key: 'breakable', label: 'Breakable', type: 'boolean', default: false },
+      { key: 'flammable', label: 'Flammable', type: 'boolean', default: false },
+    ],
   },
 
   // ── Objects ──────────────────────────────────────────────────────────────
@@ -71,6 +83,21 @@ export const TOOLS: ToolDef[] = [
     id: 'pickup-key', label: 'Key', category: 'Pickups',
     mode: 'entity', field: 'pickups', color: '#f0c040',
     staticProps: { type: 'key' }, props: [],
+  },
+  {
+    id: 'pickup-bomb', label: 'Bomb', category: 'Pickups',
+    mode: 'entity', field: 'pickups', color: '#555577',
+    staticProps: { type: 'bomb' }, props: [],
+  },
+  {
+    id: 'pickup-shovel', label: 'Shovel', category: 'Pickups',
+    mode: 'entity', field: 'pickups', color: '#a07040',
+    staticProps: { type: 'shovel' }, props: [],
+  },
+  {
+    id: 'pickup-torch', label: 'Torch', category: 'Pickups',
+    mode: 'entity', field: 'pickups', color: '#ff8800',
+    staticProps: { type: 'torch' }, props: [],
   },
   {
     id: 'pickup-custom', label: 'Pickup (custom)', category: 'Pickups',
@@ -113,15 +140,31 @@ export const TOOLS: ToolDef[] = [
     id: 'zone-teleporter', label: 'Teleporter', category: 'Zones',
     mode: 'area', field: 'zones', color: '#cc44ff',
     staticProps: { type: 'teleporter' },
-    props: [{ key: 'group', label: 'Group', type: 'text', default: 'a' }],
+    props: [
+      { key: 'group',       label: 'Group',       type: 'text',    default: 'a'    },
+      { key: 'id',          label: 'ID',           type: 'text',    default: ''     },
+      { key: 'destination', label: 'Destination',  type: 'text',    default: ''     },
+      { key: 'active',      label: 'Active',       type: 'boolean', default: true   },
+    ],
   },
   {
     id: 'zone-exit', label: 'Exit', category: 'Zones',
     mode: 'area', field: 'zones', color: '#ffd700',
     staticProps: { type: 'exit' }, props: [],
   },
+  {
+    id: 'zone-flammable', label: 'Flammable', category: 'Zones',
+    mode: 'area', field: 'zones', color: '#ff6600',
+    staticProps: { type: 'flammable' }, props: [],
+  },
 
   // ── Structure ────────────────────────────────────────────────────────────
+  {
+    id: 'locked-block', label: 'Locked Block', category: 'Structure',
+    mode: 'entity', field: 'lockedBlocks', color: '#8866cc',
+    staticProps: { requires: 'key' },
+    props: [{ key: 'requires', label: 'Requires', type: 'text', default: 'key' }],
+  },
   {
     id: 'obstacle', label: 'Obstacle', category: 'Structure',
     mode: 'area', field: 'obstacles', color: '#6a3808',
@@ -138,9 +181,10 @@ export const TOOLS: ToolDef[] = [
     mode: 'entity', field: 'switches', color: '#dd4422',
     staticProps: {},
     props: [
-      { key: 'group',    label: 'Group',    type: 'text',   default: 'a' },
-      { key: 'mode',     label: 'Mode',     type: 'select', options: ['hold','toggle'], default: 'hold' },
-      { key: 'requires', label: 'Requires', type: 'select', options: ['any','block'],   default: 'any'  },
+      { key: 'group',    label: 'Group',    type: 'text',    default: 'a'    },
+      { key: 'mode',     label: 'Mode',     type: 'select',  options: ['hold','toggle','one-time'], default: 'hold' },
+      { key: 'requires', label: 'Requires', type: 'select',  options: ['any','block'],  default: 'any'  },
+      { key: 'enabled',  label: 'Enabled',  type: 'boolean', default: true   },
     ],
   },
   {
@@ -162,10 +206,15 @@ export const TOOL_BY_ID = new Map(TOOLS.map(t => [t.id, t]))
  * Matches tools that have the same field and whose staticProps match the item.
  */
 export function colorForItem(field: string, item: Record<string, unknown>): string {
+  return toolForItem(field, item)?.color ?? '#888888'
+}
+
+/** Return the ToolDef that best matches a placed item, or null if none found. */
+export function toolForItem(field: string, item: Record<string, unknown>): ToolDef | null {
   for (const tool of TOOLS) {
     if (tool.field !== field) continue
     const sp = tool.staticProps ?? {}
-    if (Object.entries(sp).every(([k, v]) => item[k] === v)) return tool.color
+    if (Object.entries(sp).every(([k, v]) => item[k] === v)) return tool
   }
-  return '#888888'
+  return null
 }

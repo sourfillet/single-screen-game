@@ -2,7 +2,10 @@ import { defineConfig } from 'vite'
 import { resolve } from 'path'
 
 export default defineConfig({
-  base: './',
+  base: '/',
+  server: {
+    historyApiFallback: true,
+  },
   build: {
     rollupOptions: {
       input: {

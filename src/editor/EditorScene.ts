@@ -1,15 +1,32 @@
 import Phaser from 'phaser'
 import { TILE_SIZE } from '../data/rooms'
 import { FLOOR_TILE_KEY, FLOOR_TILE_URL } from '../assets/floorTile'
-import { TOOLS, colorForItem, type ToolDef } from './tools'
-import { placeEntity, placeArea, deleteAt, type EditorRoom } from './state'
+import { TILE_PALETTE } from '../assets/tilePalette'
+import { TOOLS, colorForItem, toolForItem, type ToolDef } from './tools'
+import { placeEntity, placeArea, deleteAt, updateItem, paintTile, eraseTile, type EditorRoom } from './state'
+
+export interface Selection {
+  field: string
+  index: number
+}
 
 export interface EditorContext {
   room:        EditorRoom
   activeTool:  ToolDef | null
   activeProps: Record<string, unknown>
-  /** Called after any room mutation so the DOM UI can react (e.g. update JSON preview) */
+  selection:   Selection | null
+  /** 'tiles' = tile-painting mode, 'objects' = entity/zone placement mode */
+  editorMode:           'tiles' | 'objects'
+  /** Active tile texture key when in tile mode */
+  activeTileTexture:    string | null
+  /** Which layer is being painted */
+  activeTileLayer:      'base' | 'top'
+  /** Hidden pickup type for top tiles (empty string = none) */
+  activeTileHiddenPickup: string
+  /** Called after any room mutation so the canvas redraws. */
   onChanged:   () => void
+  /** Called after selection changes so the Properties panel rebuilds. */
+  refreshProps: () => void
 }
 
 const GRID_COLOR   = 0x444444
@@ -23,13 +40,21 @@ export class EditorScene extends Phaser.Scene {
   private ctx!: EditorContext
 
   // Graphics layers
-  private itemsGfx!:  Phaser.GameObjects.Graphics
-  private ghostGfx!:  Phaser.GameObjects.Graphics
+  private itemsGfx!:   Phaser.GameObjects.Graphics
+  private ghostGfx!:   Phaser.GameObjects.Graphics
   private labelGroup!: Phaser.GameObjects.Group
+
+  // Tile image groups
+  private baseTileGroup!: Phaser.GameObjects.Group
+  private topTileGroup!:  Phaser.GameObjects.Group
 
   // Drag state for area placement
   private dragStart: { col: number; row: number } | null = null
   private dragging = false
+
+  // Tile-mode paint state (click-drag to fill)
+  private isPainting = false
+  private lastPaintTile: { col: number; row: number } | null = null
 
   // Pan state
   private panStart: { x: number; y: number; scrollX: number; scrollY: number } | null = null
@@ -43,6 +68,9 @@ export class EditorScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image(FLOOR_TILE_KEY, FLOOR_TILE_URL)
+    for (const { key, url } of TILE_PALETTE) {
+      this.load.image(key, url)
+    }
   }
 
   create(): void {
@@ -52,6 +80,10 @@ export class EditorScene extends Phaser.Scene {
 
     // Floor
     this.add.tileSprite(W / 2, H / 2, W, H, FLOOR_TILE_KEY).setDepth(0)
+
+    // Tile image groups (above floor, below items)
+    this.baseTileGroup = this.add.group()
+    this.topTileGroup  = this.add.group()
 
     // Wall border darkening
     const wallGfx = this.add.graphics().setDepth(1)
@@ -67,10 +99,11 @@ export class EditorScene extends Phaser.Scene {
     for (let c = 0; c <= room.width;  c++) gridGfx.lineBetween(c * TILE_SIZE, 0, c * TILE_SIZE, H)
     for (let r = 0; r <= room.height; r++) gridGfx.lineBetween(0, r * TILE_SIZE, W, r * TILE_SIZE)
 
-    this.itemsGfx  = this.add.graphics().setDepth(3)
+    this.itemsGfx   = this.add.graphics().setDepth(3)
     this.labelGroup = this.add.group()
-    this.ghostGfx  = this.add.graphics().setDepth(5)
+    this.ghostGfx   = this.add.graphics().setDepth(5)
 
+    this.drawTiles()
     this.drawItems()
 
     // Disable right-click context menu over canvas
@@ -87,6 +120,7 @@ export class EditorScene extends Phaser.Scene {
 
   /** Called externally (import, resize, reset) to force a full redraw. */
   refresh(): void {
+    this.drawTiles()
     this.drawItems()
   }
 
@@ -130,6 +164,23 @@ export class EditorScene extends Phaser.Scene {
     const t = this.tileAt(p)
     document.getElementById('statusbar')!.textContent = `col ${t.col}, row ${t.row}`
     this.drawGhost(p)
+
+    // Tile-mode drag painting
+    if (this.ctx.editorMode === 'tiles' && this.isPainting) {
+      if (this.lastPaintTile?.col === t.col && this.lastPaintTile?.row === t.row) return
+      this.lastPaintTile = t
+      if (p.rightButtonDown()) {
+        eraseTile(this.ctx.room, this.ctx.activeTileLayer, t.col, t.row)
+      } else if (this.ctx.activeTileTexture) {
+        paintTile(
+          this.ctx.room, this.ctx.activeTileLayer, t.col, t.row,
+          this.ctx.activeTileTexture,
+          this.ctx.activeTileHiddenPickup || undefined,
+        )
+      }
+      this.ctx.onChanged()
+      this.drawTiles()
+    }
   }
 
   private onDown(p: Phaser.Input.Pointer): void {
@@ -145,15 +196,48 @@ export class EditorScene extends Phaser.Scene {
 
     const t = this.tileAt(p)
 
+    // ── Tile mode ────────────────────────────────────────────────────────
+    if (this.ctx.editorMode === 'tiles') {
+      this.isPainting = true
+      this.lastPaintTile = t
+      if (p.rightButtonDown()) {
+        eraseTile(this.ctx.room, this.ctx.activeTileLayer, t.col, t.row)
+      } else if (this.ctx.activeTileTexture) {
+        paintTile(
+          this.ctx.room, this.ctx.activeTileLayer, t.col, t.row,
+          this.ctx.activeTileTexture,
+          this.ctx.activeTileHiddenPickup || undefined,
+        )
+      }
+      this.ctx.onChanged()
+      this.drawTiles()
+      return
+    }
+
+    // ── Object mode ───────────────────────────────────────────────────────
     if (p.rightButtonDown()) {
       deleteAt(this.ctx.room, t.col, t.row)
+      // Clear selection if the deleted item was selected
+      if (this.ctx.selection) { this.ctx.selection = null; this.ctx.refreshProps() }
       this.ctx.onChanged()
       this.drawItems()
       return
     }
 
     const tool = this.ctx.activeTool
-    if (!tool) return
+
+    if (!tool) {
+      // No tool active — try to select the item at this tile
+      const hit = this.itemAt(t.col, t.row)
+      const changed = JSON.stringify(hit) !== JSON.stringify(this.ctx.selection)
+      this.ctx.selection = hit
+      if (changed) this.ctx.refreshProps()
+      this.drawItems()
+      return
+    }
+
+    // Placing with a tool clears selection
+    this.ctx.selection = null
 
     if (tool.mode === 'entity') {
       const props = this.buildProps(tool)
@@ -171,6 +255,14 @@ export class EditorScene extends Phaser.Scene {
       this.panStart = null
       return
     }
+
+    // Stop tile painting
+    if (this.ctx.editorMode === 'tiles') {
+      this.isPainting    = false
+      this.lastPaintTile = null
+      return
+    }
+
     if (!this.dragging || !this.dragStart) { this.dragging = false; return }
     const tool = this.ctx.activeTool
     if (!tool) { this.dragging = false; return }
@@ -196,7 +288,58 @@ export class EditorScene extends Phaser.Scene {
     return { ...(tool.staticProps ?? {}), ...this.ctx.activeProps }
   }
 
+  /** Find the item occupying tile (col, row), searching entities then areas. */
+  private itemAt(col: number, row: number): Selection | null {
+    const entityFields = ['blocks', 'pots', 'enemies', 'pickups', 'switches', 'lockedBlocks']
+    const areaFields   = ['zones', 'obstacles', 'lockedDoors', 'switchDoors']
+    const room = this.ctx.room
+
+    for (const field of entityFields) {
+      const arr = room[field as keyof typeof room] as Record<string, unknown>[]
+      for (let i = 0; i < arr.length; i++) {
+        if (arr[i]['x'] === col && arr[i]['y'] === row) return { field, index: i }
+      }
+    }
+    for (const field of areaFields) {
+      const arr = room[field as keyof typeof room] as Record<string, unknown>[]
+      for (let i = 0; i < arr.length; i++) {
+        const it = arr[i]
+        const inX = col >= (it['x'] as number) && col < (it['x'] as number) + (it['w'] as number)
+        const inY = row >= (it['y'] as number) && row < (it['y'] as number) + (it['h'] as number)
+        if (inX && inY) return { field, index: i }
+      }
+    }
+    if (col === room.spawnX && row === room.spawnY) return { field: '_spawn', index: 0 }
+    return null
+  }
+
   // ── Drawing ─────────────────────────────────────────────────────────────
+
+  /** Render painted tiles (base and top layers). */
+  private drawTiles(): void {
+    this.baseTileGroup.clear(true, true)
+    this.topTileGroup.clear(true, true)
+
+    for (const tile of this.ctx.room.baseTiles) {
+      const img = this.add.image(
+        tile.x * TILE_SIZE + TILE_SIZE / 2,
+        tile.y * TILE_SIZE + TILE_SIZE / 2,
+        tile.texture,
+      ).setDisplaySize(TILE_SIZE, TILE_SIZE).setDepth(0.5)
+      this.baseTileGroup.add(img)
+    }
+
+    for (const tile of this.ctx.room.topTiles) {
+      const img = this.add.image(
+        tile.x * TILE_SIZE + TILE_SIZE / 2,
+        tile.y * TILE_SIZE + TILE_SIZE / 2,
+        tile.texture,
+      ).setDisplaySize(TILE_SIZE, TILE_SIZE).setDepth(0.65)
+      // Tint to distinguish: orange if it hides a pickup, purple otherwise
+      img.setTint(tile.hiddenPickup ? 0xffcc88 : 0xddbbff)
+      this.topTileGroup.add(img)
+    }
+  }
 
   private drawItems(): void {
     const { room } = this.ctx
@@ -204,19 +347,31 @@ export class EditorScene extends Phaser.Scene {
     g.clear()
     this.labelGroup.clear(true, true)
 
-    const entityFields = ['blocks', 'pots', 'enemies', 'pickups', 'switches']
+    const entityFields = ['blocks', 'pots', 'enemies', 'pickups', 'switches', 'lockedBlocks']
     const areaFields   = ['zones', 'obstacles', 'lockedDoors', 'switchDoors']
 
+    const DIRECTION_ARROWS: Record<string, string> = { up: '↑', down: '↓', left: '←', right: '→' }
+
     for (const field of areaFields) {
-      for (const item of room[field as keyof typeof room] as Record<string,unknown>[]) {
+      const arr = room[field as keyof typeof room] as Record<string,unknown>[]
+      for (let i = 0; i < arr.length; i++) {
+        const item = arr[i]
         const color = colorForItem(field, item)
-        this.drawArea(g, item, color, String(item['type'] ?? field))
+        let label = String(item['type'] ?? field)
+        if (item['type'] === 'directional' && item['direction']) {
+          label = DIRECTION_ARROWS[item['direction'] as string] ?? label
+        }
+        const selected = this.ctx.selection?.field === field && this.ctx.selection?.index === i
+        this.drawArea(g, item, color, label, selected)
       }
     }
     for (const field of entityFields) {
-      for (const item of room[field as keyof typeof room] as Record<string,unknown>[]) {
+      const arr = room[field as keyof typeof room] as Record<string,unknown>[]
+      for (let i = 0; i < arr.length; i++) {
+        const item = arr[i]
         const color = colorForItem(field, item)
-        this.drawEntity(g, item, color, field)
+        const selected = this.ctx.selection?.field === field && this.ctx.selection?.index === i
+        this.drawEntity(g, item, color, field, selected)
       }
     }
 
@@ -224,20 +379,28 @@ export class EditorScene extends Phaser.Scene {
     this.drawSpawnMarker(g, room.spawnX, room.spawnY)
   }
 
-  private drawEntity(g: Phaser.GameObjects.Graphics, item: Record<string,unknown>, color: string, label: string): void {
+  private drawEntity(
+    g: Phaser.GameObjects.Graphics,
+    item: Record<string,unknown>, color: string, label: string,
+    selected = false,
+  ): void {
     const x = (item['x'] as number) * TILE_SIZE
     const y = (item['y'] as number) * TILE_SIZE
     const hex = parseInt(color.replace('#', ''), 16)
     g.fillStyle(hex, 0.75)
     g.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4)
-    g.lineStyle(1, hex, 1)
+    g.lineStyle(selected ? 2 : 1, selected ? 0xffffff : hex, 1)
     g.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4)
     const abbr = label.slice(0, 2).toUpperCase()
     const txt = this.add.text(x + 3, y + 3, abbr, LABEL_STYLE).setDepth(4)
     this.labelGroup.add(txt)
   }
 
-  private drawArea(g: Phaser.GameObjects.Graphics, item: Record<string,unknown>, color: string, label: string): void {
+  private drawArea(
+    g: Phaser.GameObjects.Graphics,
+    item: Record<string,unknown>, color: string, label: string,
+    selected = false,
+  ): void {
     const x  = (item['x'] as number) * TILE_SIZE
     const y  = (item['y'] as number) * TILE_SIZE
     const pw = (item['w'] as number) * TILE_SIZE
@@ -245,7 +408,7 @@ export class EditorScene extends Phaser.Scene {
     const hex = parseInt(color.replace('#', ''), 16)
     g.fillStyle(hex, 0.25)
     g.fillRect(x, y, pw, ph)
-    g.lineStyle(2, hex, 0.85)
+    g.lineStyle(selected ? 2 : 2, selected ? 0xffffff : hex, selected ? 1 : 0.85)
     g.strokeRect(x + 1, y + 1, pw - 2, ph - 2)
     const txt = this.add.text(x + 4, y + 4, label, LABEL_STYLE).setDepth(4)
     this.labelGroup.add(txt)
@@ -265,6 +428,16 @@ export class EditorScene extends Phaser.Scene {
   private drawGhost(p: Phaser.Input.Pointer): void {
     const g = this.ghostGfx
     g.clear()
+
+    // Tile mode: highlight hovered cell
+    if (this.ctx.editorMode === 'tiles') {
+      const t = this.tileAt(p)
+      const color = this.ctx.activeTileLayer === 'top' ? 0xddbbff : 0xffffff
+      g.lineStyle(2, color, 0.7)
+      g.strokeRect(t.col * TILE_SIZE, t.row * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+      return
+    }
+
     const tool = this.ctx.activeTool
     if (!tool) return
 

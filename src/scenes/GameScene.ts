@@ -18,13 +18,20 @@ import { Switch } from "../entities/Switch";
 import { SwitchDoor } from "../entities/SwitchDoor";
 import { ROOM_DEFS, TILE_SIZE } from "../data/rooms";
 import { Block } from "../entities/Block";
+import { LockedBlock } from "../entities/LockedBlock";
 import { Pot } from "../entities/Pot";
-import { POT_SPRITE_URLS, POT_BREAK_KEYS, POT_BREAK_ANIM, POT_KEY } from "../assets/potSprites";
+import { POT_SPRITE_URLS, POT_BREAK_KEYS, POT_BREAK_ANIM } from "../assets/potSprites";
+import { TELEPORTER_SPRITE_URLS, TELEPORTER_FRAME_KEYS, TELEPORTER_ANIM } from "../assets/teleporterSprites";
+import { DIRECTIONAL_PAD_KEY, DIRECTIONAL_PAD_URL } from "../assets/directionalPadSprites";
 import { PLAYER_SPRITE_URLS } from "../assets/playerSprites";
 import { BLOCK_SPRITE_URLS } from "../assets/blockSprites";
 import { stripBackground } from "../utils/textureUtils";
 import { FLOOR_TILE_KEY, FLOOR_TILE_URL } from "../assets/floorTile";
 import { BRICK_TILE_KEY, BRICK_TILE_URL } from "../assets/brickTile";
+import { TILE_PALETTE_URLS } from "../assets/tilePalette";
+import keyUrl from "../sprites/key.png";
+import { Bomb, registerBombTexture, BLAST_RADIUS } from "../entities/Bomb";
+import { Fire } from "../entities/Fire";
 
 const WALL_THICKNESS = 1 * TILE_SIZE; // 1-tile-thick border walls (= one sprite width)
 
@@ -52,9 +59,14 @@ export class GameScene extends Phaser.Scene {
   private healZones: HealZone[] = [];
   private directionalZones: DirectionalZone[] = [];
   private teleporterZones: TeleporterZone[] = [];
+  /** Pads whose centre currently contains the player — prevents re-teleport until the player leaves. */
+  private playerOnTeleporters = new Set<TeleporterZone>();
+  /** True when a directional zone is actively pushing the player this frame. */
+  private playerOnDirectional = false;
   private exitZones: ExitZone[] = [];
   private pickups: Pickup[] = [];
   private lockedDoors: LockedDoor[] = [];
+  private lockedBlocks: LockedBlock[] = [];
   private switches: Switch[] = [];
   private switchDoors: SwitchDoor[] = [];
   private pots: Pot[] = [];
@@ -63,6 +75,27 @@ export class GameScene extends Phaser.Scene {
   private keyCountText!: Phaser.GameObjects.Text;
   private enemies: Enemy[] = [];
   private gameOver = false;
+  // ── Bombs ──────────────────────────────────────────────────────────────
+  private bombs: Bomb[] = [];
+  private carriedBomb: Bomb | null = null;
+  // ── Fire ───────────────────────────────────────────────────────────────
+  private fires: Fire[] = [];
+  private flammableRects: Phaser.Geom.Rectangle[] = [];
+  // ── Burning state (managed externally to avoid modifying entity classes) ─
+  private playerBurning = false;
+  private playerBurnTimer = 0;
+  private playerBurnDmgTimer = 0;
+  private enemyBurning: boolean[] = [];
+  private enemyBurnTimers: number[] = [];
+  private enemyBurnDmgTimers: number[] = [];
+  // ── Torch key ─────────────────────────────────────────────────────────
+  private torchKey!: Phaser.Input.Keyboard.Key;
+  private topTileObjects: Array<{
+    sprite: Phaser.GameObjects.Image;
+    col: number;
+    row: number;
+    hiddenPickup?: string;
+  }> = [];
   private dpad!: DPad;
   private healthBar!: HealthBar;
   private colorLabel!: Phaser.GameObjects.Text;
@@ -75,6 +108,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // Load level from URL slug, e.g. /testlevel → fetch /testlevel.json from public/
+    const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    if (slug && !slug.endsWith('.html')) {
+      this.load.json('url-room', `/${slug}.json`);
+    }
+
     for (const [key, url] of Object.entries(PLAYER_SPRITE_URLS)) {
       this.load.image(key, url);
     }
@@ -82,6 +121,7 @@ export class GameScene extends Phaser.Scene {
     for (const [key, url] of Object.entries(BLOCK_SPRITE_URLS)) {
       this.load.image(key, url);
     }
+    this.load.image('pickup_key', keyUrl);
     this.load.image(FLOOR_TILE_KEY, FLOOR_TILE_URL);
     this.load.image(BRICK_TILE_KEY, BRICK_TILE_URL);
     this.load.image(HEART_FULL_KEY, HEART_FULL_URL);
@@ -89,10 +129,25 @@ export class GameScene extends Phaser.Scene {
     for (const [key, url] of Object.entries(POT_SPRITE_URLS)) {
       this.load.image(key, url);
     }
+    for (const [key, url] of Object.entries(TELEPORTER_SPRITE_URLS)) {
+      this.load.image(key, url);
+    }
+    this.load.image(DIRECTIONAL_PAD_KEY, DIRECTIONAL_PAD_URL);
+    for (const [key, url] of Object.entries(TILE_PALETTE_URLS)) {
+      this.load.image(key, url);
+    }
+    registerBombTexture(this);
   }
 
   create(): void {
     this.gameOver = false;
+
+    this.anims.create({
+      key: TELEPORTER_ANIM,
+      frames: TELEPORTER_FRAME_KEYS.map((key) => ({ key })),
+      frameRate: 6,
+      repeat: -1,
+    });
 
     this.anims.create({
       key: POT_BREAK_ANIM,
@@ -105,10 +160,10 @@ export class GameScene extends Phaser.Scene {
       stripBackground(this, key);
     }
 
-    const _preview = localStorage.getItem('editorPreviewRoom');
-    const room: (typeof ROOM_DEFS)[string] = _preview
-      ? JSON.parse(_preview)
-      : ROOM_DEFS["test"];
+    const _urlRoom   = this.cache.json.get('url-room');
+    const _preview   = localStorage.getItem('editorPreviewRoom');
+    const room: (typeof ROOM_DEFS)[string] = _urlRoom
+      ?? (_preview ? JSON.parse(_preview) : ROOM_DEFS["test"]);
 
     const roomW = room.width * TILE_SIZE;
     const roomH = room.height * TILE_SIZE;
@@ -116,12 +171,15 @@ export class GameScene extends Phaser.Scene {
     const spawnY = entPx(room.spawnY ?? room.height / 2);
 
     this.buildFloor(roomW, roomH);
+    this.buildBaseTiles(room);
+    this.buildTopTiles(room);
     this.buildWalls(roomW, roomH);
     this.buildObstacles(room);
     this.buildZones(room, spawnX, spawnY);
     this.buildBlocks(room);
     this.buildPickups(room);
     this.buildLockedDoors(room);
+    this.buildLockedBlocks(room);
     this.buildSwitches(room);
     this.buildPots(room);
     this.buildEnemies(room);
@@ -174,25 +232,9 @@ export class GameScene extends Phaser.Scene {
         zone.onOverlap(this.player, this.time.now);
       });
     }
-    for (const teleporter of this.teleporterZones) {
-      this.physics.add.overlap(
-        this.player.gameObject,
-        teleporter.gameObject,
-        () => {
-          if (!teleporter.canTeleport(this.time.now)) return;
-          const group = this.teleporterZones.filter(
-            (t) => t.group === teleporter.group,
-          );
-          const dest = group[(group.indexOf(teleporter) + 1) % group.length];
-          this.player.body.reset(dest.gameObject.x, dest.gameObject.y);
-          teleporter.markUsed(this.time.now);
-          dest.markUsed(this.time.now);
-        },
-      );
-    }
     for (const zone of this.pitZones) {
       this.physics.add.overlap(this.player.gameObject, zone.gameObject, () => {
-        if (zone.containsFully(this.player.body)) zone.onOverlap(this.player);
+        if (zone.containsFully(this.player.body) || this.playerOnDirectional) zone.onOverlap(this.player);
       });
       for (const block of this.blocks.filter((b) => b.pushable)) {
         this.physics.add.overlap(block.gameObject, zone.gameObject, () => {
@@ -244,9 +286,20 @@ export class GameScene extends Phaser.Scene {
         pickup.collect(() => {
           this.player.addItem(pickup.type);
           this.updateKeyHud();
+          // Torch: also ignite the tile it was sitting on
+          if (pickup.type === 'torch') {
+            const col = Math.floor(pickup.gameObject.x / TILE_SIZE);
+            const row = Math.floor(pickup.gameObject.y / TILE_SIZE);
+            this.igniteBFS(col, row);
+          }
         });
       });
     }
+
+    // Initialise per-enemy burning arrays to match enemies list
+    this.enemyBurning    = this.enemies.map(() => false);
+    this.enemyBurnTimers = this.enemies.map(() => 0);
+    this.enemyBurnDmgTimers = this.enemies.map(() => 0);
 
     // Locked door — collide normally; open when player touches it with the key
     for (const door of this.lockedDoors) {
@@ -255,6 +308,17 @@ export class GameScene extends Phaser.Scene {
           this.player.removeItem(door.requires);
           this.updateKeyHud();
           door.open();
+        }
+      });
+    }
+
+    // Locked blocks — same logic as locked doors but entity-sized
+    for (const lb of this.lockedBlocks) {
+      this.physics.add.collider(this.player.gameObject, lb.gameObject, () => {
+        if (!lb.isOpen && this.player.hasItem(lb.requires)) {
+          this.player.removeItem(lb.requires);
+          this.updateKeyHud();
+          lb.open();
         }
       });
     }
@@ -313,6 +377,9 @@ export class GameScene extends Phaser.Scene {
     this.resetKey = this.input.keyboard!.addKey(
       Phaser.Input.Keyboard.KeyCodes.R,
     );
+    this.torchKey = this.input.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.F,
+    );
 
     // Reset button — top-right corner, fixed to camera
     const resetBtn = this.add
@@ -329,14 +396,29 @@ export class GameScene extends Phaser.Scene {
   update(): void {
     if (this.gameOver) return;
 
+    const delta = this.game.loop.delta;
+
     this.icePass();
     this.switchPass();
     this.carryPass();
     this.player.update(this.dpad.state);
     for (const enemy of this.enemies) enemy.update(this.player);
+    for (const zone of this.directionalZones) zone.update(delta);
     this.directionalPass();
+    this.teleporterPass();
     this.solidityPass();
+    this.bombPass(delta);
+    this.firePass(delta);
+    this.burningPass(delta);
     this.healthBar.update(this.player);
+
+    // Torch: place fire one tile ahead (F key)
+    if (Phaser.Input.Keyboard.JustDown(this.torchKey) && this.player.hasItem('torch')) {
+      const { dx, dy } = this.player.facingDir;
+      const col = Math.floor((this.player.gameObject.x + dx * TILE_SIZE) / TILE_SIZE);
+      const row = Math.floor((this.player.gameObject.y + dy * TILE_SIZE) / TILE_SIZE);
+      this.igniteBFS(col, row);
+    }
 
     if (this.player.isDead) {
       this.handleDeath();
@@ -418,6 +500,276 @@ export class GameScene extends Phaser.Scene {
     this.add.tileSprite(width / 2, height / 2, width, height, FLOOR_TILE_KEY);
   }
 
+  private buildBaseTiles(room: (typeof ROOM_DEFS)[string]): void {
+    for (const { x, y, texture } of room.baseTiles ?? []) {
+      this.add.image(entPx(x), entPx(y), texture).setDisplaySize(TILE_SIZE, TILE_SIZE).setDepth(0.5);
+    }
+  }
+
+  private buildTopTiles(room: (typeof ROOM_DEFS)[string]): void {
+    this.topTileObjects = [];
+    for (const def of room.topTiles ?? []) {
+      const sprite = this.add.image(entPx(def.x), entPx(def.y), def.texture).setDisplaySize(TILE_SIZE, TILE_SIZE).setDepth(0.7);
+      this.topTileObjects.push({ sprite, col: def.x, row: def.y, hiddenPickup: def.hiddenPickup });
+    }
+  }
+
+  /** Dig the top tile directly in front of the player. Called when player has a shovel. */
+  private tryDig(): void {
+    const { dx, dy } = this.player.facingDir;
+    const col = Math.floor((this.player.gameObject.x + dx * TILE_SIZE) / TILE_SIZE);
+    const row = Math.floor((this.player.gameObject.y + dy * TILE_SIZE) / TILE_SIZE);
+
+    const idx = this.topTileObjects.findIndex(t => t.col === col && t.row === row);
+    if (idx < 0) return;
+
+    const { sprite, hiddenPickup } = this.topTileObjects[idx];
+    this.topTileObjects.splice(idx, 1);
+
+    this.tweens.add({
+      targets: sprite,
+      scaleX: 0, scaleY: 0, alpha: 0,
+      duration: 200,
+      onComplete: () => sprite.destroy(),
+    });
+
+    if (hiddenPickup) {
+      const pickup = new Pickup(this, entPx(col), entPx(row), hiddenPickup);
+      this.pickups.push(pickup);
+      this.physics.add.overlap(this.player.gameObject, pickup.gameObject, () => {
+        if (pickup.isCollected) return;
+        pickup.collect(() => {
+          this.player.addItem(hiddenPickup, 1);
+          this.updateKeyHud();
+          this.pickups = this.pickups.filter(p => p !== pickup);
+        });
+      });
+    }
+  }
+
+  // ── Bomb / explosion ───────────────────────────────────────────────────
+
+  private bombPass(delta: number): void {
+    for (const bomb of this.bombs) {
+      bomb.update(delta, (bx, by) => this.explodeAt(bx, by));
+    }
+    this.bombs = this.bombs.filter(b => !b.exploded);
+  }
+
+  private explodeAt(bx: number, by: number): void {
+    // Destroy the bomb game object now that it has exploded
+    const bomb = this.bombs.find(b => b.exploded && b.gameObject.active);
+    if (bomb) bomb.gameObject.destroy();
+
+    // Visual: expanding orange ring + brief white flash
+    const ring = this.add.graphics().setDepth(10);
+    ring.fillStyle(0xffaa00, 0.75);
+    ring.fillCircle(0, 0, BLAST_RADIUS);
+    ring.x = bx; ring.y = by;
+    this.tweens.add({
+      targets: ring, alpha: 0, scaleX: 1.4, scaleY: 1.4,
+      duration: 350, onComplete: () => ring.destroy(),
+    });
+    const flash = this.add.graphics().setDepth(11);
+    flash.fillStyle(0xffffff, 0.9);
+    flash.fillCircle(0, 0, BLAST_RADIUS * 0.5);
+    flash.x = bx; flash.y = by;
+    this.tweens.add({
+      targets: flash, alpha: 0, duration: 120, onComplete: () => flash.destroy(),
+    });
+
+    const dist = (x: number, y: number) => Phaser.Math.Distance.Between(bx, by, x, y);
+
+    // Damage player
+    if (dist(this.player.gameObject.x, this.player.gameObject.y) <= BLAST_RADIUS) {
+      this.player.takeDamage(2);
+    }
+
+    // Kill enemies in blast
+    for (const enemy of this.enemies) {
+      if (!enemy.gameObject.active || enemy.isDead || enemy.fallingIn) continue;
+      if (dist(enemy.gameObject.x, enemy.gameObject.y) <= BLAST_RADIUS) enemy.kill();
+    }
+
+    // Shatter breakable blocks; ignite flammable ones
+    for (const block of this.blocks) {
+      if (!block.gameObject.active || block.shattered) continue;
+      if (dist(block.gameObject.x, block.gameObject.y) > BLAST_RADIUS) continue;
+      if (block.flammable) {
+        const col = Math.floor(block.gameObject.x / TILE_SIZE);
+        const row = Math.floor(block.gameObject.y / TILE_SIZE);
+        block.shatter();
+        this.igniteBFS(col, row);
+      } else if (block.breakable) {
+        block.shatter();
+      }
+    }
+
+    // Break pots
+    for (const pot of this.pots) {
+      if (pot.broken || !pot.gameObject.active) continue;
+      if (dist(pot.gameObject.x, pot.gameObject.y) <= BLAST_RADIUS) pot.break();
+    }
+
+    // Chain-react other armed bombs
+    for (const other of this.bombs) {
+      if (other.exploded || other._carried) continue;
+      if (dist(other.gameObject.x, other.gameObject.y) <= BLAST_RADIUS) {
+        other.exploded = true;
+        this.time.delayedCall(80, () => this.explodeAt(other.gameObject.x, other.gameObject.y));
+      }
+    }
+
+    // Ignite flammable zones within blast
+    for (const rect of this.flammableRects) {
+      for (let r = 0; r < rect.height / TILE_SIZE; r++) {
+        for (let c = 0; c < rect.width / TILE_SIZE; c++) {
+          const col = rect.x / TILE_SIZE + c;
+          const row = rect.y / TILE_SIZE + r;
+          const tx = entPx(col); const ty = entPx(row);
+          if (dist(tx, ty) <= BLAST_RADIUS) this.igniteBFS(col, row);
+        }
+      }
+    }
+  }
+
+  // ── Fire / flammability ────────────────────────────────────────────────
+
+  /** Spawn a single fire at a cell. Deduplicates — no-op if already burning. */
+  private spawnFire(col: number, row: number): void {
+    if (this.fires.some(f => f.col === col && f.row === row && !f.extinguished)) return;
+    this.fires.push(new Fire(this, entPx(col), entPx(row), col, row));
+  }
+
+  /**
+   * BFS from (startCol, startRow): ignite that cell immediately, then wave-by-wave
+   * spread to connected flammable neighbours, each wave delayed by WAVE_DELAY ms.
+   */
+  private igniteBFS(startCol: number, startRow: number): void {
+    const WAVE_DELAY = 600; // ms per BFS depth level
+    const scheduled = new Set<string>();
+    const queue: Array<{ col: number; row: number; depth: number }> = [
+      { col: startCol, row: startRow, depth: 0 },
+    ];
+    scheduled.add(`${startCol},${startRow}`);
+
+    let i = 0;
+    while (i < queue.length) {
+      const { col, row, depth } = queue[i++];
+      this.time.delayedCall(depth * WAVE_DELAY, () => {
+        this.spawnFire(col, row);
+      });
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        const nc = col + dc;
+        const nr = row + dr;
+        const key = `${nc},${nr}`;
+        if (!scheduled.has(key) && this.isTileFlammable(nc, nr)) {
+          scheduled.add(key);
+          queue.push({ col: nc, row: nr, depth: depth + 1 });
+        }
+      }
+    }
+  }
+
+  private isTileFlammable(col: number, row: number): boolean {
+    const cx = entPx(col); const cy = entPx(row);
+    for (const rect of this.flammableRects) {
+      if (rect.contains(cx, cy)) return true;
+    }
+    for (const block of this.blocks) {
+      if (!block.gameObject.active || !block.flammable || block.shattered) continue;
+      if (Math.floor(block.gameObject.x / TILE_SIZE) === col &&
+          Math.floor(block.gameObject.y / TILE_SIZE) === row) return true;
+    }
+    return false;
+  }
+
+  private firePass(delta: number): void {
+    for (const fire of this.fires) {
+      if (fire.extinguished) continue;
+
+      fire.update(delta);
+
+      // Damage tick — hurt player / set burning when they stand in fire
+      if (fire.damageTick(delta)) {
+        const fx = fire.gameObject.x; const fy = fire.gameObject.y;
+        const half = TILE_SIZE / 2 + 4;
+
+        if (Math.abs(this.player.gameObject.x - fx) < half &&
+            Math.abs(this.player.gameObject.y - fy) < half) {
+          this.player.takeDamage(1);
+          if (!this.playerBurning) {
+            this.playerBurning = true;
+            this.playerBurnTimer = 0;
+            this.playerBurnDmgTimer = 0;
+          }
+        }
+
+        for (let i = 0; i < this.enemies.length; i++) {
+          const e = this.enemies[i];
+          if (!e.gameObject.active || e.isDead || e.fallingIn) continue;
+          if (Math.abs(e.gameObject.x - fx) < half && Math.abs(e.gameObject.y - fy) < half) {
+            if (!this.enemyBurning[i]) {
+              this.enemyBurning[i]    = true;
+              this.enemyBurnTimers[i] = 0;
+              this.enemyBurnDmgTimers[i] = 0;
+            }
+          }
+        }
+      }
+
+      // Ignite flammable blocks that land on this fire tile (e.g. pushed into it)
+      for (const block of this.blocks) {
+        if (!block.gameObject.active || !block.flammable || block.shattered) continue;
+        const bc = Math.floor(block.gameObject.x / TILE_SIZE);
+        const br = Math.floor(block.gameObject.y / TILE_SIZE);
+        if (bc === fire.col && br === fire.row) {
+          block.shatter();
+          this.igniteBFS(bc, br);
+        }
+      }
+    }
+
+    this.fires = this.fires.filter(f => !f.extinguished);
+  }
+
+  // ── Burning status ─────────────────────────────────────────────────────
+
+  private burningPass(delta: number): void {
+    const BURN_DURATION     = 4000;
+    const BURN_DMG_INTERVAL = 1000;
+    const BURN_KILL_TIME    = 2500; // enemies die after this long burning
+
+    if (this.playerBurning && !this.player.isDead) {
+      this.playerBurnTimer    += delta;
+      this.playerBurnDmgTimer += delta;
+      if (this.playerBurnDmgTimer >= BURN_DMG_INTERVAL) {
+        this.playerBurnDmgTimer = 0;
+        this.player.takeDamage(1);
+      }
+      const phase = Math.floor(this.playerBurnTimer / 220) % 2;
+      this.player.setColor(phase === 0 ? 0xff6600 : this.player.currentColor);
+      if (this.playerBurnTimer >= BURN_DURATION) {
+        this.playerBurning = false;
+        this.player.setColor(this.player.currentColor);
+      }
+    }
+
+    for (let i = 0; i < this.enemies.length; i++) {
+      if (!this.enemyBurning[i]) continue;
+      const e = this.enemies[i];
+      if (!e.gameObject.active || e.isDead || e.fallingIn) { this.enemyBurning[i] = false; continue; }
+      this.enemyBurnTimers[i]    += delta;
+      this.enemyBurnDmgTimers[i] += delta;
+      const phase = Math.floor(this.enemyBurnTimers[i] / 220) % 2;
+      e.gameObject.setTint(phase === 0 ? 0xff6600 : 0x40e0d0);
+      if (this.enemyBurnTimers[i] >= BURN_KILL_TIME) {
+        e.kill();
+        this.enemyBurning[i] = false;
+      }
+    }
+  }
+
   private buildWalls(width: number, height: number): void {
     this.walls = this.physics.add.staticGroup();
     const t = WALL_THICKNESS;
@@ -462,9 +814,8 @@ export class GameScene extends Phaser.Scene {
     this.blocks = [];
     this.fixedBlockObjects = [];
     this.pushableBlockObjects = [];
-    for (const { x, y, pushable, transportable } of room.blocks ?? []) {
-      // Blocks are 1×1 tile (32×32 px) — entity convention, centred within their tile
-      const block = new Block(this, entPx(x), entPx(y), pushable, transportable);
+    for (const { x, y, pushable, transportable, breakable, flammable } of room.blocks ?? []) {
+      const block = new Block(this, entPx(x), entPx(y), pushable, transportable, breakable, flammable);
       this.blocks.push(block);
       if (pushable) this.pushableBlockObjects.push(block.gameObject);
       else this.fixedBlockObjects.push(block.gameObject);
@@ -524,17 +875,46 @@ export class GameScene extends Phaser.Scene {
    * Runs after entity update() so it takes precedence over normal movement.
    */
   private directionalPass(): void {
+    // How fast entities are pulled toward the zone's lane center (perpendicular axis).
+    // Proportional to distance so it feels like a gentle suction rather than a snap.
+    const ALIGN_SPEED = 150;
+
+    this.playerOnDirectional = false;
+
     for (const zone of this.directionalZones) {
-      if (this.physics.world.overlap(this.player.gameObject, zone.gameObject)) {
-        this.player.body.setVelocity(zone.vx, zone.vy);
-      }
-      for (const enemy of this.enemies) {
-        if (
-          !enemy.fallingIn &&
-          this.physics.world.overlap(enemy.gameObject, zone.gameObject)
-        ) {
-          enemy.body.setVelocity(zone.vx, zone.vy);
+      const zx = zone.gameObject.x;
+      const zy = zone.gameObject.y;
+      const hw = zone.gameObject.width  / 2;
+      const hh = zone.gameObject.height / 2;
+
+      const apply = (ex: number, ey: number, setVel: (vx: number, vy: number) => void): boolean => {
+        if (ex < zx - hw || ex > zx + hw || ey < zy - hh || ey > zy + hh) return false;
+        let vx = zone.vx;
+        let vy = zone.vy;
+        if (zone.vx !== 0) {
+          // Horizontal zone — pull entity toward vertical center of the lane
+          const dy = zy - ey;
+          vy = Math.sign(dy) * Math.min(Math.abs(dy) * 6, ALIGN_SPEED);
+        } else {
+          // Vertical zone — pull entity toward horizontal center of the lane
+          const dx = zx - ex;
+          vx = Math.sign(dx) * Math.min(Math.abs(dx) * 6, ALIGN_SPEED);
         }
+        setVel(vx, vy);
+        return true;
+      };
+
+      if (apply(
+        this.player.gameObject.x, this.player.gameObject.y,
+        (vx, vy) => this.player.body.setVelocity(vx, vy),
+      )) this.playerOnDirectional = true;
+
+      for (const enemy of this.enemies) {
+        if (enemy.fallingIn) continue;
+        apply(
+          enemy.gameObject.x, enemy.gameObject.y,
+          (vx, vy) => enemy.body.setVelocity(vx, vy),
+        );
       }
     }
   }
@@ -557,6 +937,16 @@ export class GameScene extends Phaser.Scene {
           this.player.gameObject.y + dy * TILE_SIZE,
         );
         this.carriedBlock = null;
+      } else if (this.carriedBomb) {
+        // Throw bomb in facing direction
+        const { dx, dy } = this.player.facingDir;
+        this.carriedBomb.throw(
+          this.player.gameObject.x + dx * TILE_SIZE,
+          this.player.gameObject.y + dy * TILE_SIZE,
+          dx * 180,
+          dy * 180,
+        );
+        this.carriedBomb = null;
       } else if (this.carriedPot) {
         // Throw pot in facing direction
         const { dx, dy } = this.player.facingDir;
@@ -597,6 +987,16 @@ export class GameScene extends Phaser.Scene {
         } else if (nearestBlock) {
           this.carriedBlock = nearestBlock;
           nearestBlock.pickUp();
+        } else if (this.player.hasItem('bomb')) {
+          // Arm a bomb from inventory
+          this.player.removeItem('bomb', 1);
+          const bomb = new Bomb(this, this.player.gameObject.x, this.player.gameObject.y);
+          bomb.pickUp();
+          this.bombs.push(bomb);
+          this.carriedBomb = bomb;
+        } else if (this.player.hasItem('shovel')) {
+          // Nothing to carry — try to dig a top tile in front
+          this.tryDig();
         }
       }
     }
@@ -613,6 +1013,11 @@ export class GameScene extends Phaser.Scene {
       const by = this.player.gameObject.y - TILE_SIZE;
       (this.carriedPot.gameObject.body as Phaser.Physics.Arcade.Body).reset(bx, by);
     }
+    if (this.carriedBomb) {
+      const bx = this.player.gameObject.x;
+      const by = this.player.gameObject.y - TILE_SIZE;
+      (this.carriedBomb.gameObject.body as Phaser.Physics.Arcade.Body).reset(bx, by);
+    }
   }
 
   private buildSwitches(room: (typeof ROOM_DEFS)[string]): void {
@@ -624,9 +1029,9 @@ export class GameScene extends Phaser.Scene {
         new SwitchDoor(this, areaPx(x, w), areaPx(y, h), areaW(w), areaH(h), group),
       );
     }
-    for (const { x, y, group, mode, requires } of room.switches ?? []) {
+    for (const { x, y, group, mode, requires, enabled } of room.switches ?? []) {
       this.switches.push(
-        new Switch(this, entPx(x), entPx(y), group, mode, requires),
+        new Switch(this, entPx(x), entPx(y), group, mode, requires, enabled),
       );
     }
   }
@@ -634,11 +1039,24 @@ export class GameScene extends Phaser.Scene {
   /**
    * Evaluates every switch each frame and opens/closes linked doors accordingly.
    * A door opens when ANY switch in its group is active (OR logic).
+   *
+   * Activation requires the centre of the entity to be within the switch tile,
+   * rather than any-pixel overlap, so walking past a switch doesn't accidentally
+   * trigger it.
    */
   private switchPass(): void {
     const pushableBlocks = this.blocks.filter(
       (b) => b.pushable && b.gameObject.active,
     );
+
+    // Returns true when the entity centre (ex, ey) is inside the switch tile.
+    const centreOn = (ex: number, ey: number, sw: Switch): boolean => {
+      const hw = TILE_SIZE / 2;
+      return (
+        ex >= sw.gameObject.x - hw && ex <= sw.gameObject.x + hw &&
+        ey >= sw.gameObject.y - hw && ey <= sw.gameObject.y + hw
+      );
+    };
 
     for (const sw of this.switches) {
       const req = sw.requires ?? 'any';
@@ -647,34 +1065,29 @@ export class GameScene extends Phaser.Scene {
       // Player counts unless requires is 'block'
       if (req !== 'block') {
         const itemType = req.startsWith('item:') ? req.slice(5) : null;
-        const playerQualifies = itemType
-          ? this.player.hasItem(itemType)
-          : true;
-        if (
-          playerQualifies &&
-          this.physics.world.overlap(this.player.gameObject, sw.gameObject)
-        ) {
+        const playerQualifies = itemType ? this.player.hasItem(itemType) : true;
+        if (playerQualifies && centreOn(this.player.gameObject.x, this.player.gameObject.y, sw)) {
           pressedNow = true;
         }
       }
 
-      // Pushable blocks always count for 'any' and 'block'
+      // Pushable blocks, carried items, and resting pots count for 'any' and 'block'
       if (!pressedNow && req !== 'item' && !req.startsWith('item:')) {
         for (const block of pushableBlocks) {
-          if (this.physics.world.overlap(block.gameObject, sw.gameObject)) {
+          if (centreOn(block.gameObject.x, block.gameObject.y, sw)) {
             pressedNow = true;
             break;
           }
         }
-        // Carried block/pot counts too — use player position since body is disabled
+        // Carried block/pot: use player position since their bodies are repositioned above the player
         if (!pressedNow && (this.carriedBlock || this.carriedPot) &&
-            this.physics.world.overlap(this.player.gameObject, sw.gameObject)) {
+            centreOn(this.player.gameObject.x, this.player.gameObject.y, sw)) {
           pressedNow = true;
         }
         // Resting pots count the same as blocks
         for (const pot of this.pots) {
           if (pot.broken || pot.carried) continue;
-          if (this.physics.world.overlap(pot.gameObject, sw.gameObject)) {
+          if (centreOn(pot.gameObject.x, pot.gameObject.y, sw)) {
             pressedNow = true;
             break;
           }
@@ -686,9 +1099,7 @@ export class GameScene extends Phaser.Scene {
         const anyActive = this.switches.some(
           (s) => s.group === sw.group && s.active,
         );
-        for (const door of this.switchDoors.filter(
-          (d) => d.group === sw.group,
-        )) {
+        for (const door of this.switchDoors.filter((d) => d.group === sw.group)) {
           door.setOpen(anyActive);
         }
       }
@@ -715,6 +1126,13 @@ export class GameScene extends Phaser.Scene {
       this.lockedDoors.push(
         new LockedDoor(this, areaPx(x, w), areaPx(y, h), areaW(w), areaH(h), requires),
       );
+    }
+  }
+
+  private buildLockedBlocks(room: (typeof ROOM_DEFS)[string]): void {
+    this.lockedBlocks = [];
+    for (const { requires, x, y } of room.lockedBlocks ?? []) {
+      this.lockedBlocks.push(new LockedBlock(this, entPx(x), entPx(y), requires));
     }
   }
 
@@ -807,6 +1225,9 @@ export class GameScene extends Phaser.Scene {
               areaH(h),
               group,
               groupColorIndex.get(group)!,
+              zoneDef.id,
+              zoneDef.destination,
+              zoneDef.active,
             ),
           );
           break;
@@ -816,7 +1237,62 @@ export class GameScene extends Phaser.Scene {
             new ExitZone(this, areaPx(x, w), areaPx(y, h), areaW(w), areaH(h)),
           );
           break;
+        case "flammable":
+          // Invisible in-game — just track the rect for fire spread/ignition
+          this.flammableRects.push(
+            new Phaser.Geom.Rectangle(x * TILE_SIZE, y * TILE_SIZE, w * TILE_SIZE, h * TILE_SIZE),
+          );
+          break;
       }
     }
+  }
+
+  /**
+   * Each frame: determine which teleporter pads contain the player's centre.
+   * A pad only fires when the player freshly enters it (wasn't on it last frame),
+   * preventing re-teleport until they leave and return.
+   */
+  private teleporterPass(): void {
+    const px = this.player.gameObject.x;
+    const py = this.player.gameObject.y;
+    const currentlyOn = new Set<TeleporterZone>();
+
+    for (const tp of this.teleporterZones) {
+      const zx = tp.gameObject.x;
+      const zy = tp.gameObject.y;
+      const hw = tp.gameObject.width  / 2;
+      const hh = tp.gameObject.height / 2;
+
+      if (px < zx - hw || px > zx + hw || py < zy - hh || py > zy + hh) continue;
+
+      currentlyOn.add(tp);
+
+      // Only fire if the player just entered (wasn't here last frame) and the pad can send
+      if (this.playerOnTeleporters.has(tp) || !tp.active) continue;
+
+      const dest = this.resolveTeleportDest(tp);
+      if (!dest) continue;
+
+      this.player.body.reset(dest.gameObject.x, dest.gameObject.y);
+      // Mark the destination as occupied immediately so it doesn't fire this same frame
+      currentlyOn.add(dest);
+    }
+
+    this.playerOnTeleporters = currentlyOn;
+  }
+
+  /** Resolve the destination TeleporterZone for a given pad. */
+  private resolveTeleportDest(tp: TeleporterZone): TeleporterZone | null {
+    if (tp.destination === "random") {
+      const pool = this.teleporterZones.filter((t) => t !== tp && t.group === tp.group);
+      return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
+    }
+    if (tp.destination) {
+      return this.teleporterZones.find((t) => t.id === tp.destination) ?? null;
+    }
+    // Fallback: cycle to the next pad in the same group (original behaviour)
+    const group = this.teleporterZones.filter((t) => t.group === tp.group);
+    if (group.length <= 1) return null;
+    return group[(group.indexOf(tp) + 1) % group.length];
   }
 }

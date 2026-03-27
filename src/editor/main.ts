@@ -2,16 +2,22 @@ import Phaser from 'phaser'
 import { TILE_SIZE } from '../data/rooms'
 import { EditorScene, type EditorContext } from './EditorScene'
 import { emptyRoom } from './state'
-import { buildUI } from './ui'
+import { buildUI, buildProperties } from './ui'
 
 // ── Shared context ──────────────────────────────────────────────────────────
 const room = emptyRoom(25, 19)
 
 const ctx: EditorContext = {
   room,
-  activeTool:  null,
-  activeProps: {},
-  onChanged:   () => { /* filled in after scene is ready */ },
+  activeTool:           null,
+  activeProps:          {},
+  selection:            null,
+  editorMode:           'objects',
+  activeTileTexture:    null,
+  activeTileLayer:      'base',
+  activeTileHiddenPickup: '',
+  onChanged:    () => { /* filled in after scene is ready */ },
+  refreshProps: () => { buildProperties(ctx) },
 }
 
 // ── DOM UI ──────────────────────────────────────────────────────────────────
