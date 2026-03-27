@@ -180,7 +180,7 @@ export function buildProperties(ctx: EditorContext): void {
   // ── Selected item ────────────────────────────────────────────────────────
   if (ctx.selection) {
     const { field, index } = ctx.selection
-    const arr = (ctx.room as Record<string, Record<string,unknown>[]>)[field]
+    const arr = (ctx.room as unknown as Record<string, Record<string,unknown>[]>)[field]
     const item = arr?.[index]
 
     if (!item) {

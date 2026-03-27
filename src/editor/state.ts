@@ -70,7 +70,7 @@ export function placeEntity(
   props: Record<string, unknown>,
 ): void {
   if (field === '_spawn') { room.spawnX = col; room.spawnY = row; return }
-  const arr = (room as Record<string, unknown[]>)[field]
+  const arr = (room as unknown as Record<string, unknown[]>)[field]
   if (!Array.isArray(arr)) return
   arr.push({ ...props, x: col, y: row })
 }
@@ -81,7 +81,7 @@ export function placeArea(
   col: number, row: number, w: number, h: number,
   props: Record<string, unknown>,
 ): void {
-  const arr = (room as Record<string, unknown[]>)[field]
+  const arr = (room as unknown as Record<string, unknown[]>)[field]
   if (!Array.isArray(arr)) return
   arr.push({ ...props, x: col, y: row, w, h })
 }
@@ -93,20 +93,20 @@ export function deleteAt(room: EditorRoom, col: number, row: number): boolean {
   const areaFields   = ['zones', 'obstacles', 'lockedDoors', 'switchDoors']
 
   for (const f of entityFields) {
-    const arr = (room as Record<string, Record<string,unknown>[]>)[f]
+    const arr = (room as unknown as Record<string, Record<string,unknown>[]>)[f]
     const before = arr.length
-    ;(room as Record<string, unknown[]>)[f] = arr.filter(it => !(it['x'] === col && it['y'] === row))
-    if ((room as Record<string, unknown[]>)[f].length !== before) deleted = true
+    ;(room as unknown as Record<string, unknown[]>)[f] = arr.filter(it => !(it['x'] === col && it['y'] === row))
+    if ((room as unknown as Record<string, unknown[]>)[f].length !== before) deleted = true
   }
   for (const f of areaFields) {
-    const arr = (room as Record<string, Record<string,unknown>[]>)[f]
+    const arr = (room as unknown as Record<string, Record<string,unknown>[]>)[f]
     const before = arr.length
-    ;(room as Record<string, unknown[]>)[f] = arr.filter(it => {
+    ;(room as unknown as Record<string, unknown[]>)[f] = arr.filter(it => {
       const inX = col >= (it['x'] as number) && col < (it['x'] as number) + (it['w'] as number)
       const inY = row >= (it['y'] as number) && row < (it['y'] as number) + (it['h'] as number)
       return !(inX && inY)
     })
-    if ((room as Record<string, unknown[]>)[f].length !== before) deleted = true
+    if ((room as unknown as Record<string, unknown[]>)[f].length !== before) deleted = true
   }
   return deleted
 }
@@ -118,7 +118,7 @@ export function updateItem(
   index: number,
   patch: Record<string, unknown>,
 ): void {
-  const arr = (room as Record<string, Record<string, unknown>[]>)[field]
+  const arr = (room as unknown as Record<string, Record<string, unknown>[]>)[field]
   if (!Array.isArray(arr) || index < 0 || index >= arr.length) return
   Object.assign(arr[index], patch)
 }

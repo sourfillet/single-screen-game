@@ -9,7 +9,7 @@ const THROW_SPEED   = 180  // px/s
 /** Generate the bomb sprite texture once per scene (no-ops if already registered). */
 export function registerBombTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists(BOMB_KEY)) return
-  const g = scene.make.graphics({ add: false })
+  const g = scene.make.graphics({ add: false } as never)
   // Body
   g.fillStyle(0x1a1a1a)
   g.fillCircle(11, 12, 9)
