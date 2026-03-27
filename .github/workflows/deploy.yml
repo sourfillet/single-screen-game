@@ -7,6 +7,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     permissions:
       contents: read
       pages: write
@@ -21,8 +24,11 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - uses: actions/configure-pages@v4
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
 
       - uses: actions/deploy-pages@v4
+        id: deployment

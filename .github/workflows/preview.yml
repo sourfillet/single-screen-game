@@ -1,0 +1,59 @@
+name: PR Preview Build
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm ci
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: preview-pr-${{ github.event.pull_request.number }}
+          path: ./dist
+          retention-days: 7
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const url  = '${{ steps.upload.outputs.artifact-url }}';
+            const sha  = context.payload.pull_request.head.sha.slice(0, 7);
+            const body = [
+              '<!-- preview-build -->',
+              `📦 **Preview build** for \`${sha}\` — [Download artifact](${url})`,
+              '',
+              'Unzip and preview with: `npx serve .`',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('<!-- preview-build -->'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
