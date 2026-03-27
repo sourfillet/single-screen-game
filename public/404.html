@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script>
+    // GitHub Pages SPA redirect — encodes the path segment after the repo base
+    // as a ?level= query param, then sends the browser to index.html.
+    // e.g. /single-screen-game/testlevel  →  /single-screen-game/?level=testlevel
+    var segs = window.location.pathname.split('/').filter(Boolean);
+    // segs[0] is the repo name (e.g. "single-screen-game") on a project page,
+    // or empty on a custom domain / user page.
+    var hasBase = window.location.hostname.endsWith('github.io') && segs.length > 0;
+    var base    = hasBase ? '/' + segs[0] + '/' : '/';
+    var level   = window.location.pathname.slice(base.length).replace(/^\/+|\/+$/g, '');
+    if (level && !level.endsWith('.html')) {
+      window.location.replace(base + '?level=' + encodeURIComponent(level));
+    } else {
+      window.location.replace(base);
+    }
+  </script>
+</head>
+<body></body>
+</html>
