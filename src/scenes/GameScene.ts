@@ -108,19 +108,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // Load level from URL:
-    //   Path-based (local dev):   /testlevel          → testlevel.json
-    //   Query param (GitHub Pages 404 redirect): ?level=testlevel → testlevel.json
-    const base = import.meta.env.BASE_URL ?? '/';
-    const pathSlug = window.location.pathname
-      .slice(base.length)
-      .replace(/^\/+|\/+$/g, '');
-    const querySlug = new URLSearchParams(window.location.search).get('level') ?? '';
-    const slug = (pathSlug && !pathSlug.endsWith('.html')) ? pathSlug : querySlug;
-    if (slug) {
-      this.load.json('url-room', `${base}${slug}.json`);
-    }
-
     for (const [key, url] of Object.entries(PLAYER_SPRITE_URLS)) {
       this.load.image(key, url);
     }
@@ -167,7 +154,7 @@ export class GameScene extends Phaser.Scene {
       stripBackground(this, key);
     }
 
-    const _urlRoom   = this.cache.json.get('url-room');
+    const _urlRoom   = this.registry.get('urlRoom') ?? null;
     const _preview   = localStorage.getItem('editorPreviewRoom');
     const room: (typeof ROOM_DEFS)[string] = _urlRoom
       ?? (_preview ? JSON.parse(_preview) : ROOM_DEFS["test"]);

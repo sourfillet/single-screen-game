@@ -4,7 +4,8 @@
       "Bash(npm install:*)",
       "Bash(npm run:*)",
       "Bash(node -e \":*)",
-      "Bash(git -C /c/repos/single-screen-game remote get-url origin)"
+      "Bash(git -C /c/repos/single-screen-game remote get-url origin)",
+      "WebFetch(domain:sourfillet.github.io)"
     ]
   }
 }
