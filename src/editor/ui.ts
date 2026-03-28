@@ -393,7 +393,7 @@ function buildActions(ctx: EditorContext): void {
 
   addBtn('▶ Play', 'play', () => {
     localStorage.setItem('editorPreviewRoom', exportJSON(ctx.room))
-    window.open('/', '_blank')
+    window.open(import.meta.env.BASE_URL, '_blank')
   })
 
   addBtn('✕ New Room', 'danger', () => {
