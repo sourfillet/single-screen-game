@@ -57,6 +57,15 @@ export interface ZoneDef {
   destination?: string;
   /** teleporter zones: false = receive-only (cannot send). Default true. */
   active?: boolean;
+  /**
+   * exit zones: room slug to load on trigger (e.g. "cave").
+   * If omitted the default ExitScreen is shown instead.
+   */
+  targetRoom?: string;
+  /** exit zones: tile column to spawn the player at in the target room. */
+  targetSpawnX?: number;
+  /** exit zones: tile row to spawn the player at in the target room. */
+  targetSpawnY?: number;
 }
 
 /**

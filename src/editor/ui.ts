@@ -316,11 +316,11 @@ function buildRoomSettings(ctx: EditorContext, onResize: (w: number, h: number) 
     const inp   = document.createElement('input')
     inp.type    = 'number'
     inp.min     = '5'
-    inp.max     = '60'
+    inp.max     = '200'
     inp.value   = String(ctx.room[key])
     inp.id      = `room-${key}`
     inp.addEventListener('change', () => {
-      ctx.room[key] = Math.max(5, Math.min(60, Number(inp.value)))
+      ctx.room[key] = Math.max(5, Math.min(200, Number(inp.value)))
       inp.value = String(ctx.room[key])
       onResize(ctx.room.width, ctx.room.height)
     })

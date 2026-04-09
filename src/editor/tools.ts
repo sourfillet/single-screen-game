@@ -150,7 +150,12 @@ export const TOOLS: ToolDef[] = [
   {
     id: 'zone-exit', label: 'Exit', category: 'Zones',
     mode: 'area', field: 'zones', color: '#ffd700',
-    staticProps: { type: 'exit' }, props: [],
+    staticProps: { type: 'exit' },
+    props: [
+      { key: 'targetRoom',   label: 'Target Room',    type: 'text',   default: '' },
+      { key: 'targetSpawnX', label: 'Target Spawn X', type: 'number', default: 1  },
+      { key: 'targetSpawnY', label: 'Target Spawn Y', type: 'number', default: 1  },
+    ],
   },
   {
     id: 'zone-flammable', label: 'Flammable', category: 'Zones',

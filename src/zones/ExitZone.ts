@@ -11,8 +11,20 @@ const PULSE_DURATION = 700
  */
 export class ExitZone {
   readonly gameObject: Phaser.GameObjects.Rectangle
+  readonly targetRoom: string | undefined
+  readonly targetSpawnX: number | undefined
+  readonly targetSpawnY: number | undefined
 
-  constructor(scene: Phaser.Scene, x: number, y: number, w: number, h: number) {
+  constructor(
+    scene: Phaser.Scene,
+    x: number, y: number, w: number, h: number,
+    targetRoom?: string,
+    targetSpawnX?: number,
+    targetSpawnY?: number,
+  ) {
+    this.targetRoom   = targetRoom
+    this.targetSpawnX = targetSpawnX
+    this.targetSpawnY = targetSpawnY
     this.gameObject = scene.add.rectangle(x, y, w, h, COLOR, PULSE_MAX)
     scene.physics.add.existing(this.gameObject, true)
 

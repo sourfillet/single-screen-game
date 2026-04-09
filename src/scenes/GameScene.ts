@@ -96,6 +96,8 @@ export class GameScene extends Phaser.Scene {
     row: number;
     hiddenPickup?: string;
   }> = [];
+  private roomW = 0;
+  private roomH = 0;
   private dpad!: DPad;
   private healthBar!: HealthBar;
   private colorLabel!: Phaser.GameObjects.Text;
@@ -161,8 +163,12 @@ export class GameScene extends Phaser.Scene {
 
     const roomW = room.width * TILE_SIZE;
     const roomH = room.height * TILE_SIZE;
-    const spawnX = entPx(room.spawnX ?? room.width / 2);
-    const spawnY = entPx(room.spawnY ?? room.height / 2);
+    this.roomW = roomW;
+    this.roomH = roomH;
+    const spawnOverride = this.registry.get('spawnOverride') as { x?: number; y?: number } | null;
+    this.registry.remove('spawnOverride');
+    const spawnX = entPx(spawnOverride?.x ?? room.spawnX ?? room.width / 2);
+    const spawnY = entPx(spawnOverride?.y ?? room.spawnY ?? room.height / 2);
 
     this.buildFloor(roomW, roomH);
     this.buildBaseTiles(room);
@@ -178,8 +184,17 @@ export class GameScene extends Phaser.Scene {
     this.buildPots(room);
     this.buildEnemies(room);
 
-    this.cameras.main.setBounds(0, 0, roomW, roomH);
+    this.physics.world.setBounds(0, 0, roomW, roomH);
     this.player = new Player(this, spawnX, spawnY);
+
+    // Restore inventory saved during a room transition
+    const savedInventory = this.registry.get('savedInventory') as Record<string, number> | null;
+    if (savedInventory) {
+      for (const [item, count] of Object.entries(savedInventory)) {
+        this.player.addItem(item, count);
+      }
+      this.registry.remove('savedInventory');
+    }
 
     this.physics.add.collider(this.player.gameObject, this.walls);
     this.physics.add.collider(this.player.gameObject, this.obstacles);
@@ -254,7 +269,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.cameras.main.startFollow(this.player.gameObject, true, 0.1, 0.1);
+    this.updateCamera(true);
 
     this.dpad = new DPad(this);
 
@@ -352,7 +367,7 @@ export class GameScene extends Phaser.Scene {
     // Exit zone
     for (const zone of this.exitZones) {
       this.physics.add.overlap(this.player.gameObject, zone.gameObject, () => {
-        if (!this.gameOver) this.handleExit();
+        if (!this.gameOver) this.handleExit(zone);
       });
     }
 
@@ -404,6 +419,7 @@ export class GameScene extends Phaser.Scene {
     this.bombPass(delta);
     this.firePass(delta);
     this.burningPass(delta);
+    this.updateCamera();
     this.healthBar.update(this.player);
 
     // Torch: place fire one tile ahead (F key)
@@ -442,9 +458,31 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private handleExit(): void {
+  private handleExit(zone: ExitZone): void {
     this.gameOver = true;
-    new ExitScreen(this, () => this.scene.restart());
+    if (zone.targetRoom) {
+      this.cameras.main.fadeOut(300, 0, 0, 0);
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, async () => {
+        const base = import.meta.env.BASE_URL ?? '/';
+        let roomData: unknown = null;
+        try {
+          const res = await fetch(`${base}${zone.targetRoom}.json`);
+          if (res.ok) roomData = await res.json();
+        } catch { /* fall through to default room */ }
+        // Save inventory so it survives the scene restart
+        const inv: Record<string, number> = {};
+        for (const item of ['key', 'torch', 'bomb', 'shovel']) {
+          const n = this.player.getCount(item);
+          if (n > 0) inv[item] = n;
+        }
+        this.registry.set('urlRoom', roomData);
+        this.registry.set('spawnOverride', { x: zone.targetSpawnX, y: zone.targetSpawnY });
+        this.registry.set('savedInventory', inv);
+        this.scene.restart();
+      });
+    } else {
+      new ExitScreen(this, () => this.scene.restart());
+    }
   }
 
   private updateKeyHud(): void {
@@ -538,6 +576,29 @@ export class GameScene extends Phaser.Scene {
           this.pickups = this.pickups.filter(p => p !== pickup);
         });
       });
+    }
+  }
+
+  // ── Camera ─────────────────────────────────────────────────────────────
+
+  private updateCamera(snap = false): void {
+    const cam = this.cameras.main;
+    const vw = this.scale.width;
+    const vh = this.scale.height;
+
+    const targetX = this.roomW <= vw
+      ? (this.roomW - vw) / 2
+      : Phaser.Math.Clamp(this.player.gameObject.x - vw / 2, 0, this.roomW - vw);
+
+    const targetY = this.roomH <= vh
+      ? (this.roomH - vh) / 2
+      : Phaser.Math.Clamp(this.player.gameObject.y - vh / 2, 0, this.roomH - vh);
+
+    if (snap) {
+      cam.setScroll(targetX, targetY);
+    } else {
+      cam.scrollX += (targetX - cam.scrollX) * 0.1;
+      cam.scrollY += (targetY - cam.scrollY) * 0.1;
     }
   }
 
@@ -1228,7 +1289,12 @@ export class GameScene extends Phaser.Scene {
         }
         case "exit":
           this.exitZones.push(
-            new ExitZone(this, areaPx(x, w), areaPx(y, h), areaW(w), areaH(h)),
+            new ExitZone(
+              this, areaPx(x, w), areaPx(y, h), areaW(w), areaH(h),
+              zoneDef.targetRoom,
+              zoneDef.targetSpawnX,
+              zoneDef.targetSpawnY,
+            ),
           );
           break;
         case "flammable":
